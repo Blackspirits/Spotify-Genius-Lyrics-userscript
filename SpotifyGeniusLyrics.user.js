@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.19
+// @version         23.6.20
 // @require         https://greasyfork.org/scripts/406698-geniuslyrics/code/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -136,22 +136,22 @@ async function openAndAskToSubmitSpotifyLyrics (songTitle, songArtistsArr, force
   const key = songTitle + ' - ' + songArtistsArr.join(', ')
 
   // Open lyrics if they are not already open
-  if (!document.querySelector('[data-testid="fullscreen-lyric"]')) {
+  if (!document.querySelector('#main-view [data-testid="lyrics-line"]')) {
     document.querySelector('[data-testid="lyrics-button"]').click()
   }
   // Wait one second for lyrics to open
   window.setTimeout(async function () {
-    const lyrics = Array.from(document.querySelectorAll('[data-testid="fullscreen-lyric"]')).map(div => div.textContent).join('\n')
+    const lyrics = Array.from(document.querySelectorAll('#main-view [data-testid="lyrics-line"]')).map(div => div.textContent).join('\n')
 
     // Close lyrics again, if there are no lyrics
-    if (document.querySelectorAll('[data-testid="fullscreen-lyric"]').length === 0) {
+    if (document.querySelectorAll('#main-view [data-testid="lyrics-line"]').length === 0) {
       console.debug('Closing lyrics-view, because Spotify has no lyrics either.')
       document.querySelector('[data-testid="lyrics-button"]').click()
       return
     }
 
     // Check if the lyrics are behind a premium modal overlay
-    for (let p = document.querySelector('[data-testid="fullscreen-lyric"]'); p && p.parentElement; p = p.parentElement) {
+    for (let p = document.querySelector('#main-view [data-testid="lyrics-line"]'); p && p.parentElement; p = p.parentElement) {
       if (p.tagName === 'MAIN') {
         if (p.querySelector('button span')) {
           console.debug('Lyrics are behind paywall, abort submit to genius.')
