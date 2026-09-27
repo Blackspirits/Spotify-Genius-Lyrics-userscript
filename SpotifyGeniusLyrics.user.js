@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21
-// @require         https://greasyfork.org/scripts/406698-geniuslyrics/code/GeniusLyrics.js
+// @version         23.6.21.8
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/681b6caad901ff0982c83abb6bf33b8f8f422a7e/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -29,6 +29,7 @@
 
 /*
     Copyright (C) 2020 cuzi (cuzi@openmail.cc)
+    Modified in 2026 by BlackSpirits (https://github.com/Blackspirits).
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -54,8 +55,14 @@ let genius
 let resizeLeftContainer
 let resizeContainer
 let optionCurrentSize = 30.0
+let uiLanguagePreference = 'auto'
 GM.getValue('optioncurrentsize', optionCurrentSize).then(function (value) {
   optionCurrentSize = value
+})
+GM.getValue('ui_language', 'auto').then(function (value) {
+  uiLanguagePreference = value === 'en' || value === 'pt-PT' ? value : 'auto'
+  document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
+  document.querySelectorAll('.genius-search-container').forEach(translateSearch)
 })
 
 function setFrameDimensions (container, iframe, bar) {
@@ -107,6 +114,7 @@ function getCleanLyricsContainer () {
   }
   resizeLeftContainer = topContainer
   resizeContainer.style.zIndex = 10
+  resizeContainer.classList.remove('genius-search-container')
 
   return document.getElementById('lyricscontainer')
 }
@@ -265,107 +273,118 @@ function hideLyrics () {
   }
 }
 
+function translateSearch (container) {
+  const t = uiText()
+  const isResults = container.dataset.searchView === 'results'
+  const heading = container.querySelector('.genius-search-title')
+  if (heading) {
+    heading.textContent = isResults ? `${container.dataset.resultCount} ${t.results}` : t.search
+  }
+  const hide = container.querySelector('.genius-search-hide')
+  if (hide) hide.textContent = t.hide
+  const back = container.querySelector('.genius-search-back')
+  if (back) back.textContent = t.back
+  const input = container.querySelector('.genius-search-input')
+  if (input) {
+    input.placeholder = t.searchHint
+    input.setAttribute('aria-label', t.searchHint)
+  }
+  const submit = container.querySelector('.genius-search-submit')
+  if (submit) submit.textContent = t.searchButton
+  const status = container.querySelector('.genius-search-status')
+  if (status) {
+    status.textContent = {
+      searching: t.searching,
+      error: t.searchError,
+      empty: t.noResults
+    }[status.dataset.status] || ''
+  }
+  for (const badge of container.querySelectorAll('.genius-search-badge')) {
+    badge.textContent = t[badge.dataset.state] || badge.dataset.state
+  }
+  for (const views of container.querySelectorAll('.genius-search-views')) {
+    views.textContent = `${views.dataset.count} ${t.view}`
+  }
+}
+
+function searchShell (container, view, query) {
+  container.replaceChildren()
+  container.classList.add('genius-search-container')
+  container.dataset.searchView = view
+  const header = container.appendChild(document.createElement('div'))
+  header.className = 'genius-search-header'
+  const title = header.appendChild(document.createElement('h2'))
+  title.className = 'genius-search-title'
+  const actions = header.appendChild(document.createElement('div'))
+  actions.className = 'genius-search-actions'
+  if (view === 'results') {
+    const back = actions.appendChild(document.createElement('button'))
+    back.type = 'button'
+    back.className = 'genius-search-back'
+    back.addEventListener('click', () => showSearchField(query))
+  }
+  const hide = actions.appendChild(document.createElement('button'))
+  hide.type = 'button'
+  hide.className = 'genius-search-hide'
+  hide.addEventListener('click', hideLyrics)
+  translateSearch(container)
+}
+
 function listSongs (hits, container, query) {
-  if (!container) {
-    container = getCleanLyricsContainer()
+  if (!container) container = getCleanLyricsContainer()
+  searchShell(container, 'results', query)
+  container.dataset.resultCount = hits.length
+  const list = container.appendChild(document.createElement('ol'))
+  list.className = 'genius-search-results'
+  if (!hits.length) {
+    const status = container.appendChild(document.createElement('p'))
+    status.className = 'genius-search-status'
+    status.dataset.status = 'empty'
   }
-  container.style.backgroundColor = 'rgba(0,0,0,.8)'
-
-  // Back to search button
-  const backToSearchButton = document.createElement('a')
-  backToSearchButton.href = '#'
-  backToSearchButton.appendChild(document.createTextNode('Back to search'))
-  backToSearchButton.addEventListener('click', function backToSearchButtonClick (ev) {
-    ev.preventDefault()
-    if (query) {
-      showSearchField(query)
-    } else if (genius.current.compoundTitle) {
-      showSearchField(genius.current.compoundTitle.replace('\t', ' '))
-    } else if (genius.current.artists && genius.current.title) {
-      showSearchField(genius.current.artists + ' ' + genius.current.title)
-    } else if (genius.current.artists) {
-      showSearchField(genius.current.artists)
-    } else {
-      showSearchField()
-    }
-  })
-
-  const separator = document.createElement('span')
-  separator.setAttribute('class', 'second-line-separator')
-  separator.setAttribute('style', 'padding:0px 10px')
-
-  separator.appendChild(document.createTextNode('•'))
-
-  // Hide button
-  const hideButton = document.createElement('a')
-  hideButton.href = '#'
-  hideButton.appendChild(document.createTextNode('Hide'))
-  hideButton.addEventListener('click', function hideButtonClick (ev) {
-    ev.preventDefault()
-    hideLyrics()
-  })
-
-  // List search results
-  const trackhtml = `
-<div class="geniushiticon">
-  <div class="geniushiticonout">
-    <span style="color:silver;font-size:2.0em">🅖</span>
-  </div>
-  <div class="geniushiticonover">
-    <span style="opacity:0.7;font-size:1.5em">📄</span>
-  </div>
-</div>
-<div class="geniushitname">
-  <div class="track-name-wrapper tracklist-top-align">
-    <div class="tracklist-name ellipsis-one-line" dir="auto">$title</div>
-    <div class="second-line">
-      <span class="ellipsis-one-line" dir="auto">$artist</span>
-      <span class="second-line-separator" aria-label="in album">•</span>
-      <span class="ellipsis-one-line" dir="auto">👁 <span style="font-size:0.8em">$stats.pageviews</span></span>
-      <span class="second-line-separator" aria-label="in album">•</span>
-      <span class="geniusbadge">$lyrics_state</span>
-    </div>
-  </div>
-</div>`
-  container.innerHTML = '<section class="tracklist-container"><ol class="tracklist geniushits" style="width:99%"></ol></section>'
-
-  container.insertBefore(hideButton, container.firstChild)
-  container.insertBefore(separator, container.firstChild)
-  container.insertBefore(backToSearchButton, container.firstChild)
-
-  const ol = container.querySelector('ol.tracklist')
-  const searchresultsLengths = hits.length
   const compoundTitle = genius.current.compoundTitle
-  const onclick = function onclick () {
-    genius.f.rememberLyricsSelection(compoundTitle, null, this.dataset.hit)
-    genius.f.showLyrics(JSON.parse(this.dataset.hit), searchresultsLengths)
-  }
-  hits.forEach(function forEachHit (hit) {
-    const li = ol.appendChild(document.createElement('li'))
-    li.setAttribute('class', 'tracklist-row')
-    li.setAttribute('role', 'button')
-    li.innerHTML = trackhtml.replace(/\$title/g, hit.result.title_with_featured).replace(/\$artist/g, hit.result.primary_artist.name).replace(/\$lyrics_state/g, hit.result.lyrics_state).replace(/\$stats\.pageviews/g, 'pageviews' in hit.result.stats ? genius.f.metricPrefix(hit.result.stats.pageviews, 1) : ' - ')
-    li.dataset.hit = JSON.stringify(hit)
-
-    li.addEventListener('click', onclick)
-
-    const geniushitname = li.querySelector('.geniushitname')
-
-    const widthDiff = geniushitname.clientWidth - (li.clientWidth - 30)
-    if (widthDiff > 0) {
-      geniushitname.style.width = (li.clientWidth - 30) + 'px'
-      geniushitname.classList.add('runningtext')
-      if (geniushitname.querySelector('.tracklist-name')) {
-        const animationTime = Math.ceil(Math.max(3, widthDiff / 100))
-        geniushitname.querySelector('.tracklist-name').style.animation = `${animationTime}s linear 1s infinite normal runtext`
-      }
+  hits.forEach(hit => {
+    const song = hit.result || {}
+    const item = list.appendChild(document.createElement('li'))
+    const button = item.appendChild(document.createElement('button'))
+    button.type = 'button'
+    button.className = 'genius-search-result'
+    button.addEventListener('click', () => {
+      genius.f.rememberLyricsSelection(compoundTitle, null, JSON.stringify(hit))
+      genius.f.showLyrics(hit, hits.length)
+    })
+    const art = button.appendChild(document.createElement('span'))
+    art.className = 'genius-search-art'
+    const cover = song.song_art_image_thumbnail_url || song.header_image_thumbnail_url
+    if (typeof cover === 'string' && /^https:\/\//.test(cover)) {
+      const image = art.appendChild(document.createElement('img'))
+      image.src = cover
+      image.alt = ''
+      image.loading = 'lazy'
+    } else {
+      art.textContent = 'G'
+    }
+    const info = button.appendChild(document.createElement('span'))
+    info.className = 'genius-search-info'
+    const name = info.appendChild(document.createElement('strong'))
+    name.className = 'genius-search-song'
+    name.textContent = song.title_with_featured || song.title || ''
+    const artist = info.appendChild(document.createElement('span'))
+    artist.className = 'genius-search-artist'
+    artist.textContent = song.primary_artist?.name || ''
+    const meta = info.appendChild(document.createElement('span'))
+    meta.className = 'genius-search-meta'
+    if (typeof song.stats?.pageviews === 'number') {
+      const views = meta.appendChild(document.createElement('span'))
+      views.className = 'genius-search-views'
+      views.dataset.count = genius.f.metricPrefix(song.stats.pageviews, 1)
+    }
+    if (song.lyrics_state) {
+      const state = meta.appendChild(document.createElement('span'))
+      state.className = 'genius-search-badge'
+      state.dataset.state = song.lyrics_state
     }
   })
-  if (hits.length === 0) {
-    const li = ol.appendChild(document.createElement('li'))
-    li.style.fontSize = 'larger'
-    li.innerHTML = 'No results found'
-  }
+  translateSearch(container)
 }
 
 const songTitleQuery = '.Root [data-testid="now-playing-bar"] .standalone-ellipsis-one-line a[href*="/album/"],[data-testid="context-item-info-title"] a[href*="/album/"],[data-testid="context-item-info-title"] a[href*="/track/"]'
@@ -383,9 +402,13 @@ function getSongTitleAndArtist () {
     return [-2]
   }
   const songArtistsArr = []
+  const seenArtistLinks = new Set()
   const ArtistLinks = document.querySelectorAll(songArtistsQuery)
   for (const e of ArtistLinks) {
-    songArtistsArr.push(e.textContent)
+    const href = e.getAttribute('href')
+    if (seenArtistLinks.has(href)) continue
+    seenArtistLinks.add(href)
+    songArtistsArr.push(e.textContent.trim())
   }
 
   return [0, songTitle, songArtistsArr]
@@ -412,92 +435,68 @@ function addLyrics (force, beLessSpecific) {
 }
 
 let lastPos = null
+function parsePlaybackTime (text) {
+  const value = text.trim()
+  if (!/^\d+:[0-5]\d(?::[0-5]\d)?$/.test(value)) return null
+  return value.split(':').reduce((seconds, part) => seconds * 60 + Number(part), 0)
+}
+
 function updateAutoScroll () {
-  let pos = null
-  try {
-    const els = document.querySelectorAll('[data-testid="player-controls"] [data-testid="playback-position"],[data-testid="player-controls"] [data-testid="playback-duration"]')
-    if (els.length !== 2) {
-      throw new Error(`Expected 2 playback elements, found ${els.length}`)
-    }
-    const [current, remaining] = Array.from(els).map(e => e.textContent.trim().replace('-', '')).map(s => s.split(':').reverse().map((d, i, a) => parseInt(d) * Math.pow(60, i)).reduce((a, c) => a + c, 0))
-    pos = current / (current + remaining)
-  } catch (e) {
-    // Could not parse current song position
-    pos = null
-  }
-  if (pos != null && !Number.isNaN(pos) && lastPos !== pos) {
+  const currentElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-position"]')
+  const rightElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-duration"]')
+  if (!currentElement || !rightElement) return
+
+  const rightText = rightElement.textContent.trim()
+  const isRemaining = rightText.startsWith('-') || rightText.startsWith('−')
+  const current = parsePlaybackTime(currentElement.textContent)
+  const right = parsePlaybackTime(isRemaining ? rightText.slice(1) : rightText)
+  if (current == null || right == null) return
+
+  const duration = isRemaining ? current + right : right
+  const pos = duration > 0 ? current / duration : null
+  if (pos != null && pos >= 0 && pos <= 1 && lastPos !== pos) {
     genius.f.scrollLyrics(pos)
     lastPos = pos
   }
 }
 
 function startSearch (query, container) {
-  genius.f.searchByQuery(query, container, (res) => {
-    if (res && res.status === 200) {
+  const status = container.querySelector('.genius-search-status') || container.appendChild(document.createElement('p'))
+  status.className = 'genius-search-status'
+  status.dataset.status = 'searching'
+  translateSearch(container)
+  genius.f.searchByQuery(query, container, res => {
+    if (res?.status === 200) {
       listSongs(res.hits, container, query)
     } else {
-      const div = container.appendChild(document.createElement('div'))
-      div.classList.add('geniushit')
-      div.innerHTML = `Error:<pre>${JSON.stringify(res, null, 2)}</pre>`
+      status.dataset.status = 'error'
+      translateSearch(container)
     }
   })
 }
 
 function showSearchField (query) {
-  const b = getCleanLyricsContainer()
-  const div = b.appendChild(document.createElement('div'))
-  div.style = 'padding:5px'
-  div.appendChild(document.createTextNode('Search genius.com: '))
-
-  // Hide button
-  const hideButton = div.appendChild(document.createElement('a'))
-  hideButton.href = '#'
-  hideButton.style = 'float: right; padding-right: 10px;'
-  hideButton.appendChild(document.createTextNode('Hide'))
-  hideButton.addEventListener('click', function hideButtonClick (ev) {
-    ev.preventDefault()
-    hideLyrics()
+  const container = getCleanLyricsContainer()
+  searchShell(container, 'search', query)
+  const form = container.appendChild(document.createElement('form'))
+  form.className = 'genius-search-form'
+  form.setAttribute('role', 'search')
+  const input = form.appendChild(document.createElement('input'))
+  input.type = 'search'
+  input.className = 'genius-search-input'
+  const current = genius.current
+  input.value = query || current.compoundTitle?.replace('\t', ' ') ||
+    (current.artists && current.title ? current.artists + ' ' + current.title : current.artists || '')
+  const submit = form.appendChild(document.createElement('button'))
+  submit.type = 'submit'
+  submit.className = 'genius-search-submit'
+  form.addEventListener('submit', event => {
+    event.preventDefault()
+    const value = input.value.trim()
+    if (value) startSearch(value, container)
   })
-
-  const br = div.appendChild(document.createElement('br'))
-  br.style.clear = 'right'
-
-  div.style.paddingRight = '15px'
-  const input = div.appendChild(document.createElement('input'))
-  input.style = 'width:92%;border:0;border-radius:500px;padding:8px 5px 8px 25px;text-overflow:ellipsis'
-  input.placeholder = 'Search genius.com...'
-  if (query) {
-    input.value = query
-  } else if (genius.current.compoundTitle) {
-    input.value = genius.current.compoundTitle.replace('\t', ' ')
-  } else if (genius.current.artists && genius.current.title) {
-    input.value = genius.current.artists + ' ' + genius.current.title
-  } else if (genius.current.artists) {
-    input.value = genius.current.artists
-  }
-  input.addEventListener('focus', function onSearchLyricsButtonFocus () {
-    this.style.color = 'black'
-  })
-  input.addEventListener('change', function onSearchLyricsButtonClick () {
-    this.style.color = 'black'
-    if (input.value) {
-      startSearch(input.value, b)
-    }
-  })
-  input.addEventListener('keyup', function onSearchLyricsKeyUp (ev) {
-    this.style.color = 'black'
-    if (ev.code === 'Enter' || ev.code === 'NumpadEnter') {
-      ev.preventDefault()
-      if (input.value) {
-        startSearch(input.value, b)
-      }
-    }
-  })
+  translateSearch(container)
   input.focus()
-  const mag = div.appendChild(document.createElement('div'))
-  mag.style.marginTop = '-27px'
-  mag.style.marginLeft = '3px'
-  mag.appendChild(document.createTextNode('🔎'))
 }
 
 function addLyricsButton () {
@@ -611,6 +610,308 @@ function configHideSpotifyNowPlayingView (div) {
   input.addEventListener('change', onChange)
 }
 
+function isPortugueseInterface () {
+  const locale = [document.documentElement.lang, navigator.language, ...(navigator.languages || [])]
+  return locale.some(language => /^pt(?:-|$)/i.test(language || '')) || /^\/intl-pt(?:\/|$)/i.test(document.location.pathname)
+}
+
+// Add a dictionary and a language option here to support another interface language.
+const UI_TEXT = {
+  en: {
+    language: 'Language',
+    menuTitle: 'Options',
+    support: 'Report a problem',
+    lyricsGroup: 'Lyrics',
+    advanced: 'Advanced',
+    hide: 'Hide',
+    options: 'Options',
+    wrongLyrics: 'Wrong lyrics',
+    back: 'Back to search',
+    search: 'Search Genius',
+    searchHint: 'Search for a song or artist',
+    searchButton: 'Search',
+    searching: 'Searching…',
+    searchError: 'Search failed. Try again.',
+    noResults: 'No results found',
+    results: 'results',
+    view: 'views',
+    complete: 'Complete',
+    incomplete: 'Incomplete',
+    instrumental: 'Instrumental',
+    autoShow: ' Automatically show lyrics when a new song starts',
+    autoShowHint: '(if disabled, use the small button in the top right corner)',
+    pip: 'Picture in Picture: ',
+    pipHint: 'Show lyrics in a floating window if your browser supports it.',
+    pipDisabled: 'Disabled',
+    pipHidden: 'When tab is hidden',
+    pipAlways: 'Always',
+    firefoxSize: 'Firefox PiP size: ',
+    firefoxFont: 'Firefox PiP font size: ',
+    firefoxHint: 'These values are saved automatically.',
+    theme: 'Theme: ',
+    font: 'Font size: ',
+    annotations: ' Show annotations',
+    scroll: ' Automatic scrolling',
+    spotifyLyrics: ' Show Spotify lyrics if no lyrics are found on Genius',
+    submit: ' Suggest submitting Spotify lyrics to Genius',
+    suggestions: ' Hide Spotify suggestions',
+    nowPlaying: ' Hide Spotify Now Playing View',
+    romaji: 'Romaji: ',
+    low: 'Low Priority',
+    high: 'High Priority',
+    compression: 'Compression: ',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    close: 'Close',
+    clearCache: 'Clear cache',
+    cleared: 'Cleared',
+    debugOn: 'Debug is on',
+    debugOff: 'Debug is off',
+    powered: 'Powered by ',
+    contributors: ' and contributors.',
+    license: 'Licensed under the GNU General Public License v3.0'
+  },
+  'pt-PT': {
+    language: 'Idioma',
+    menuTitle: 'Opções das letras',
+    support: 'Reportar um problema',
+    lyricsGroup: 'Letras',
+    advanced: 'Avançado',
+    hide: 'Ocultar',
+    options: 'Opções',
+    wrongLyrics: 'Letra errada',
+    back: 'Voltar à pesquisa',
+    search: 'Pesquisar no Genius',
+    searchHint: 'Pesquisar música ou artista',
+    searchButton: 'Pesquisar',
+    searching: 'A pesquisar…',
+    searchError: 'A pesquisa falhou. Tenta novamente.',
+    noResults: 'Sem resultados',
+    results: 'resultados',
+    view: 'visualizações',
+    complete: 'Completa',
+    incomplete: 'Incompleta',
+    instrumental: 'Instrumental',
+    autoShow: ' Mostrar letras automaticamente ao mudar de música',
+    autoShowHint: '(se desativares, podes abri-las pelo botão no canto superior direito)',
+    pip: 'Janela flutuante: ',
+    pipHint: 'Mostra as letras numa janela flutuante, se o navegador permitir.',
+    pipDisabled: 'Desativada',
+    pipHidden: 'Quando o separador está oculto',
+    pipAlways: 'Sempre',
+    firefoxSize: 'Tamanho da janela no Firefox: ',
+    firefoxFont: 'Tamanho do texto: ',
+    firefoxHint: 'Valores guardados automaticamente.',
+    theme: 'Tema: ',
+    font: 'Tamanho do texto: ',
+    annotations: ' Mostrar anotações',
+    scroll: ' Deslocação automática',
+    spotifyLyrics: ' Mostrar letras do Spotify quando não existem no Genius',
+    submit: ' Sugerir letras do Spotify para o Genius',
+    suggestions: ' Ocultar sugestões do Spotify',
+    nowPlaying: ' Ocultar a vista «A reproduzir» do Spotify',
+    romaji: 'Romaji: ',
+    low: 'Prioridade baixa',
+    high: 'Prioridade alta',
+    compression: 'Compressão: ',
+    enabled: 'Ativada',
+    disabled: 'Desativada',
+    close: 'Fechar',
+    clearCache: 'Limpar cache',
+    cleared: 'Cache limpa',
+    debugOn: 'Diagnóstico ativo',
+    debugOff: 'Diagnóstico inativo',
+    powered: 'Criado com ',
+    contributors: ' e colaboradores.',
+    license: 'Licenciado sob a GNU General Public License v3.0'
+  }
+}
+
+function uiText () {
+  const language = uiLanguagePreference === 'auto'
+    ? (isPortugueseInterface() ? 'pt-PT' : 'en')
+    : uiLanguagePreference
+  return UI_TEXT[language] || UI_TEXT.en
+}
+
+function styleLyricsBar (bar) {
+  const t = uiText()
+  const labels = {
+    '.genius-lyrics-hide-button': t.hide,
+    '.genius-lyrics-config-button': t.options,
+    '.genius-lyrics-wronglyrics-button': t.wrongLyrics
+  }
+  for (const [selector, label] of Object.entries(labels)) {
+    const button = bar.querySelector(selector)
+    if (button) button.textContent = label
+  }
+  const back = bar.querySelector('.genius-lyrics-back-button')
+  if (back) back.textContent = t.back
+}
+
+function translateOptionsMenu (win) {
+  const t = uiText()
+  const row = id => win.querySelector(`#${id}`)?.parentElement
+  const label = (id, value) => {
+    const target = win.querySelector(`label[for="${id}"]`)
+    if (target) target.textContent = value
+  }
+  const selectLabel = (id, value) => {
+    const text = [...(row(id)?.childNodes || [])].find(node => node.nodeType === 3)
+    if (text) text.textContent = value
+  }
+  const hint = (id, value) => {
+    const text = [...(row(id)?.childNodes || [])].find(node => node.nodeType === 3)
+    if (text) text.textContent = value
+  }
+  const options = (id, names) => {
+    for (const option of win.querySelectorAll(`#${id} option`)) {
+      if (names[option.value]) option.textContent = names[option.value]
+    }
+  }
+  win.querySelector('h1').textContent = t.menuTitle
+  const support = win.querySelector(':scope > a')
+  if (support) support.textContent = t.support
+  label('genius-ui-language', t.language + ': ')
+  label('checkAutoShow748', t.autoShow)
+  hint('checkAutoShow748', t.autoShowHint)
+  label('selectPictureInPictureMode748', t.pip)
+  hint('selectPictureInPictureMode748', t.pipHint)
+  options('selectPictureInPictureMode748', {
+    disabled: t.pipDisabled, 'when-tab-is-hidden': t.pipHidden, always: t.pipAlways
+  })
+  const firefox = row('firefoxPiPWidth748')
+  if (firefox) {
+    const labels = firefox.querySelectorAll('label')
+    if (labels[0]) labels[0].textContent = t.firefoxSize
+    if (labels[1]) labels[1].textContent = t.firefoxFont
+    const firefoxHint = [...firefox.childNodes].find(node => node.nodeType === 3 && /These values|Valores guardados/.test(node.textContent))
+    if (firefoxHint) firefoxHint.textContent = t.firefoxHint
+  }
+  selectLabel('selectTheme748', t.theme)
+  label('inputFontSize748', t.font)
+  label('checkAnnotationsEnabled748', t.annotations)
+  label('checkAutoScrollEnabled748', t.scroll)
+  label('input945455', t.spotifyLyrics)
+  label('input337565', t.submit)
+  label('input875687', t.suggestions)
+  label('input12567826', t.nowPlaying)
+  selectLabel('selectRomajiPriority748', t.romaji)
+  options('selectRomajiPriority748', { low: t.low, high: t.high })
+  selectLabel('selectLZCompression748', t.compression)
+  options('selectLZCompression748', { true: t.enabled, false: t.disabled })
+  const close = win.querySelector('#myconfigwin39457845_close_button')
+  if (close) {
+    close.textContent = t.close
+    const cache = close.nextElementSibling
+    if (cache) {
+      cache.textContent = cache.textContent
+        .replace(/^(Clear cache|Limpar cache)/, t.clearCache)
+        .replace(/^(Cleared|Cache limpa)$/, t.cleared)
+    }
+    const debug = cache?.nextElementSibling
+    if (debug) {
+      const on = debug.textContent === UI_TEXT.en.debugOn || debug.textContent === UI_TEXT['pt-PT'].debugOn
+      debug.textContent = on ? t.debugOn : t.debugOff
+    }
+  }
+  for (const heading of win.querySelectorAll('.genius-options-group h2')) {
+    if (heading.parentElement.classList.contains('genius-options-lyrics')) heading.textContent = t.lyricsGroup
+  }
+  const summary = win.querySelector('.genius-options-advanced summary')
+  if (summary) summary.textContent = t.advanced
+  const footer = win.lastElementChild?.querySelector('p')
+  for (const text of footer?.childNodes || []) {
+    if (text.nodeType !== 3) continue
+    if (/^(Powered by |Criado com )$/.test(text.textContent)) text.textContent = t.powered
+    if (/^( and contributors\.| e colaboradores\.)$/.test(text.textContent)) text.textContent = t.contributors
+    if (/^(Licensed under|Licenciado sob)/.test(text.textContent)) text.textContent = t.license
+  }
+}
+
+function styleOptionsMenu (win) {
+  const row = id => win.querySelector(`#${id}`)?.parentElement
+  const autoShow = row('checkAutoShow748')
+  const pictureInPicture = row('selectPictureInPictureMode748')
+  const firefoxPictureInPicture = row('firefoxPiPWidth748')
+  const theme = row('selectTheme748')
+  const fontSize = row('inputFontSize748')
+  const annotations = row('checkAnnotationsEnabled748')
+  const autoScroll = row('checkAutoScrollEnabled748')
+  const spotifyLyrics = row('input945455')
+  const submitLyrics = row('input337565')
+  const hideSuggestions = row('input875687')
+  const hideNowPlaying = row('input12567826')
+  const romaji = row('selectRomajiPriority748')
+  const compression = row('selectLZCompression748')
+  const close = win.querySelector('#myconfigwin39457845_close_button')
+  const actions = close?.parentElement
+  if (!autoShow || !actions) return
+
+  const languageRow = win.insertBefore(document.createElement('div'), autoShow)
+  languageRow.className = 'genius-language-picker'
+  const languageLabel = languageRow.appendChild(document.createElement('label'))
+  languageLabel.htmlFor = 'genius-ui-language'
+  const language = languageRow.appendChild(document.createElement('select'))
+  language.id = 'genius-ui-language'
+  for (const [value, title] of [['auto', 'Auto / Automático'], ['en', 'English'], ['pt-PT', 'Português (Portugal)']]) {
+    const option = language.appendChild(document.createElement('option'))
+    option.value = value
+    option.textContent = title
+  }
+  language.value = uiLanguagePreference
+  language.addEventListener('change', () => {
+    uiLanguagePreference = language.value
+    GM.setValue('ui_language', uiLanguagePreference)
+    translateOptionsMenu(win)
+    document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
+    document.querySelectorAll('.genius-search-container').forEach(translateSearch)
+  })
+
+  const addRows = (parent, rows) => rows.filter(Boolean).forEach(element => parent.appendChild(element))
+  const createSection = (title, rows, className) => {
+    const section = win.insertBefore(document.createElement('section'), actions)
+    section.className = 'genius-options-group ' + className
+    const heading = section.appendChild(document.createElement('h2'))
+    heading.textContent = title
+    addRows(section, rows)
+  }
+  createSection('Lyrics', [autoShow, theme, fontSize, annotations, autoScroll], 'genius-options-lyrics')
+  createSection('Spotify', [spotifyLyrics, submitLyrics, hideSuggestions, hideNowPlaying], 'genius-options-spotify')
+  const advanced = win.insertBefore(document.createElement('details'), actions)
+  advanced.className = 'genius-options-advanced'
+  advanced.appendChild(document.createElement('summary'))
+  addRows(advanced, [pictureInPicture, firefoxPictureInPicture, romaji, compression])
+  if (pictureInPicture?.querySelector('select')?.value !== 'disabled') advanced.open = true
+
+  const cache = close.nextElementSibling
+  const debug = cache?.nextElementSibling
+  if (cache) {
+    cache.addEventListener('click', () => {
+      const observer = new window.MutationObserver(() => {
+        translateOptionsMenu(win)
+        observer.disconnect()
+      })
+      observer.observe(cache, { childList: true })
+    })
+  }
+  if (debug) {
+    debug.addEventListener('click', () => {
+      const observer = new window.MutationObserver(() => {
+        translateOptionsMenu(win)
+        observer.disconnect()
+      })
+      observer.observe(debug, { childList: true })
+    })
+  }
+  const version = win.lastElementChild?.appendChild(document.createElement('small'))
+  if (version) {
+    version.className = 'genius-options-version'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.8 · GeniusLyrics v5.16.21.4'
+  }
+  translateOptionsMenu(win)
+}
+
 function addCss () {
   document.head.appendChild(document.createElement('style')).innerHTML = `
   .lyricsiframe {
@@ -626,26 +927,308 @@ function addCss () {
     cursor:progress
   }
   .lyricsnavbar {
-    background-color: rgb(80, 80, 80);
-    background-image: linear-gradient(rgba(0, 0, 0, 0.6), rgb(18, 18, 18));
-    border-radius: 8px 8px 0px 0px;
-    margin: 8px 0px 0px 0px;
-    padding:0px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    min-height: 44px;
+    margin: 0;
+    padding: 5px 8px;
+    background: #181818;
+    border-bottom: 1px solid #ffffff26;
+    font-size: 12px !important;
   }
 
-  .lyricsnavbar span,.lyricsnavbar a:link,.lyricsnavbar a:visited {
-    color: rgb(179, 179, 179);
-    text-decoration:none;
-    transition:color 400ms;
+  .lyricsnavbar > span:not(.second-line-separator) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    color: #d6d6d6;
+    transition: background-color 160ms, color 160ms;
   }
-  .lyricsnavbar a:hover,.lyricsnavbar span:hover {
-    color:white;
-    text-decoration:none;
+  .lyricsnavbar > span:not(.second-line-separator):hover {
+    color: #fff;
+    background: #ffffff1a;
   }
-  .lyricsnavbar .second-line-separator,.lyricsnavbar .second-line-separator:hover {
-    padding:0px 10px !important;
-    color: transparent;
-    vertical-align: text-bottom;
+  .lyricsnavbar .second-line-separator {
+    display: none;
+  }
+  .lyricsnavbar .genius-lyrics-config-button {
+    color: #fff;
+  }
+
+  #myoverlay7658438 {
+    background: #000b;
+  }
+  #myconfigwin39457845 {
+    box-sizing: border-box;
+    width: min(600px, calc(100vw - 32px));
+    max-width: none;
+    max-height: calc(100vh - 32px);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 22px;
+    border: 1px solid #ffffff30;
+    border-radius: 14px;
+    background: #1c1c1c;
+    color: #f5f5f5;
+    box-shadow: 0 20px 60px #0009;
+    font-size: 14px;
+    line-height: 1.5;
+    scrollbar-color: #696969 #1c1c1c;
+  }
+  #myconfigwin39457845 h1 {
+    padding: 0;
+    margin: 0 0 8px;
+    font-size: 24px;
+  }
+  #myconfigwin39457845 > a:link,
+  #myconfigwin39457845 > a:visited {
+    display: block;
+    margin-bottom: 16px;
+    color: #b3eac6;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  #myconfigwin39457845 > a:hover {
+    color: #d4f8df;
+    font-size: 12px;
+  }
+  #myconfigwin39457845 > div {
+    box-sizing: border-box;
+    margin: 8px 0;
+    padding: 12px 14px;
+    border: 1px solid #ffffff18;
+    border-radius: 8px;
+    background: #262626;
+  }
+  #myconfigwin39457845 .genius-options-group,
+  #myconfigwin39457845 .genius-options-advanced {
+    display: block;
+    margin: 16px 0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  #myconfigwin39457845 .genius-options-group h2,
+  #myconfigwin39457845 .genius-options-advanced summary {
+    margin: 0 0 6px;
+    color: #b3b3b3;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .03em;
+  }
+  #myconfigwin39457845 .genius-options-advanced summary {
+    padding: 8px 2px;
+    cursor: pointer;
+  }
+  #myconfigwin39457845 .genius-options-group > div,
+  #myconfigwin39457845 .genius-options-advanced > div {
+    box-sizing: border-box;
+    margin: 6px 0;
+    padding: 9px 12px;
+    border: 1px solid #ffffff18;
+    border-radius: 8px;
+    background: #262626;
+  }
+  #myconfigwin39457845 .genius-options-group > div label,
+  #myconfigwin39457845 .genius-options-advanced > div label {
+    line-height: 1.4;
+  }
+  #myconfigwin39457845 .genius-options-advanced summary:focus-visible {
+    outline: 2px solid #1ed760;
+    outline-offset: 2px;
+  }
+  #myconfigwin39457845 > .genius-language-picker {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 12px 0;
+    padding: 10px 12px;
+  }
+  #myconfigwin39457845 .genius-language-picker select {
+    min-width: 150px;
+  }
+  #myconfigwin39457845 .genius-options-version {
+    display: block;
+    margin-top: 8px;
+    color: #b3b3b3;
+    font-size: 11px;
+  }
+  #myconfigwin39457845 input[type=checkbox] {
+    accent-color: #1ed760;
+  }
+  #myconfigwin39457845 label {
+    cursor: pointer;
+  }
+  #myconfigwin39457845 select,
+  #myconfigwin39457845 input[type=number],
+  #myconfigwin39457845 input[type=text] {
+    max-width: 100%;
+    padding: 5px 7px;
+    border: 1px solid #ffffff40;
+    border-radius: 5px;
+    background: #333;
+    color: #fff;
+    font: inherit;
+  }
+  #myconfigwin39457845 button {
+    margin: 2px 6px 2px 0;
+    padding: 6px 10px;
+    border: 1px solid #ffffff40;
+    border-radius: 6px;
+    background: #383838;
+    color: #fff;
+    font: inherit;
+  }
+  #myconfigwin39457845 button:hover,
+  #myconfigwin39457845 button:focus-visible {
+    background: #4b4b4b;
+    border-color: #fff8;
+  }
+  #myconfigwin39457845_close_button {
+    background: #1ed760 !important;
+    border-color: #1ed760 !important;
+    color: #121212 !important;
+    font-weight: 700 !important;
+  }
+  #myconfigwin39457845 :is(button, select, input, a):focus-visible {
+    outline: 2px solid #1ed760;
+    outline-offset: 2px;
+  }
+  #lyricscontainer.genius-search-container {
+    box-sizing: border-box;
+    min-height: 100%;
+    padding: 18px 14px;
+    border-left: 1px solid #ffffff1f;
+    background: #181818 !important;
+    color: #f5f5f5;
+    overflow-y: auto;
+  }
+  .genius-search-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .genius-search-title {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.25;
+  }
+  .genius-search-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .genius-search-container :is(button, input) {
+    font: inherit;
+  }
+  .genius-search-container button {
+    cursor: pointer;
+    border: 1px solid #ffffff38;
+    border-radius: 7px;
+    color: #f5f5f5;
+    background: #292929;
+  }
+  .genius-search-container button:hover {
+    background: #383838;
+  }
+  .genius-search-container :is(button, input):focus-visible {
+    outline: 2px solid #1ed760;
+    outline-offset: 2px;
+  }
+  .genius-search-actions button {
+    min-height: 32px;
+    padding: 5px 9px;
+  }
+  .genius-search-form {
+    display: flex;
+    gap: 7px;
+    width: 100%;
+  }
+  .genius-search-input {
+    box-sizing: border-box;
+    min-width: 0;
+    flex: 1;
+    padding: 9px 12px;
+    border: 1px solid #ffffff4a;
+    border-radius: 8px;
+    color: white;
+    background: #292929;
+  }
+  .genius-search-submit {
+    min-height: 40px;
+    padding: 8px 12px;
+    border-color: #1ed760 !important;
+    color: #121212 !important;
+    background: #1ed760 !important;
+    font-weight: 700 !important;
+  }
+  .genius-search-results {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .genius-search-result {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px;
+    text-align: left;
+  }
+  .genius-search-art {
+    flex: 0 0 48px;
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #383838;
+    color: #b3b3b3;
+    font-weight: 700;
+  }
+  .genius-search-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .genius-search-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .genius-search-song, .genius-search-artist {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .genius-search-song { font-size: 14px; }
+  .genius-search-artist, .genius-search-meta {
+    color: #b3b3b3;
+    font-size: 12px;
+  }
+  .genius-search-meta { display: flex; gap: 8px; }
+  .genius-search-badge {
+    color: #a7eac0;
+    text-transform: capitalize;
+  }
+  .genius-search-status {
+    color: #b3b3b3;
+    line-height: 1.5;
   }
   .geniushits li.tracklist-row {
     cursor:pointer
@@ -722,6 +1305,58 @@ function addCss () {
   }
 
   `
+}
+
+function styleCompactLyricsFrame ({ document: iframeDocument, theme }) {
+  if (theme.themeKey !== 'spotify' && theme.themeKey !== 'cleanwhite') return
+
+  const style = iframeDocument.createElement('style')
+  style.textContent = `
+    html .lyrics_body_pad {
+      padding-top: 0;
+    }
+    .myheader {
+      box-sizing: border-box;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      max-width: none;
+      margin: 0 10px 14px;
+      padding: 0 0 12px;
+    }
+    .genius-cover-link {
+      flex: 0 0 72px;
+    }
+    .genius-cover-link img {
+      display: block;
+      width: 72px;
+      height: 72px;
+      border-radius: 6px;
+      object-fit: cover;
+    }
+    .genius-header-details {
+      min-width: 0;
+      flex: 1;
+    }
+    .myheader h1.mytitle {
+      line-height: 1.2;
+      margin-bottom: .25em;
+      overflow-wrap: anywhere;
+    }
+    #lyrics-root.mylyrics {
+      margin-top: 0;
+      padding: 0 10px;
+      line-height: 1.6;
+      overflow-wrap: break-word;
+    }
+    #lyrics-root [data-lyrics-container="true"] > p {
+      margin: 0;
+    }
+  `
+  if (theme.themeKey === 'spotify') {
+    style.textContent += '#lyrics-root.mylyrics { color: #e5e5e5; }'
+  }
+  iframeDocument.head.appendChild(style)
 }
 
 function styleIframeContent () {
@@ -823,6 +1458,9 @@ if (document.location.hostname === 'genius.com') {
         document.querySelectorAll('.NowPlayingView button[aria-label="Hide Now Playing view"]').forEach(function (b) {
           b.click()
         })
+        document.querySelectorAll('.NowPlayingView button[aria-label="Ocultar vista Em reprodução"]').forEach(function (b) {
+          b.click()
+        })
 
         // Old: 2025-04
         document.querySelectorAll('[data-testid="control-button-npv"][data-active="true"]').forEach(function (b) {
@@ -849,6 +1487,9 @@ if (document.location.hostname === 'genius.com') {
     setFrameDimensions,
     initResize,
     onResize,
+    iframeLoadedCallback2: styleCompactLyricsFrame,
+    onLyricsBarReady: styleLyricsBar,
+    onOptionsReady: styleOptionsMenu,
     config: [
       configShowSpotifyLyrics,
       configSubmitSpotifyLyrics,
