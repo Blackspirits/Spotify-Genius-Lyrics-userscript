@@ -676,6 +676,8 @@ function styleOptionsMenu (win) {
     }
 
     win.querySelector('h1').textContent = 'Opções das letras'
+    const support = win.querySelector(':scope > a')
+    if (support) support.textContent = 'Reportar um problema'
     translateLabel(autoShow, ' Mostrar letras automaticamente ao mudar de música')
     const autoShowHint = [...(autoShow?.childNodes || [])].find(node => node.nodeType === 3)
     if (autoShowHint) autoShowHint.textContent = '(se desativares, podes abri-las pelo botão no canto superior direito)'
@@ -734,6 +736,13 @@ function styleOptionsMenu (win) {
         })
         observer.observe(debug, { childList: true })
       })
+    }
+    const footer = win.lastElementChild?.querySelector('p')
+    for (const text of footer?.childNodes || []) {
+      if (text.nodeType !== 3) continue
+      text.textContent = text.textContent.replace('Powered by ', 'Criado com ')
+        .replace(' and contributors.', ' e colaboradores.')
+        .replace('Licensed under the GNU General Public License v3.0', 'Licenciado sob a GNU General Public License v3.0')
     }
   }
 
