@@ -383,9 +383,13 @@ function getSongTitleAndArtist () {
     return [-2]
   }
   const songArtistsArr = []
+  const seenArtistLinks = new Set()
   const ArtistLinks = document.querySelectorAll(songArtistsQuery)
   for (const e of ArtistLinks) {
-    songArtistsArr.push(e.textContent)
+    const href = e.getAttribute('href')
+    if (seenArtistLinks.has(href)) continue
+    seenArtistLinks.add(href)
+    songArtistsArr.push(e.textContent.trim())
   }
 
   return [0, songTitle, songArtistsArr]
@@ -412,20 +416,26 @@ function addLyrics (force, beLessSpecific) {
 }
 
 let lastPos = null
+function parsePlaybackTime (text) {
+  const value = text.trim()
+  if (!/^\d+:[0-5]\d(?::[0-5]\d)?$/.test(value)) return null
+  return value.split(':').reduce((seconds, part) => seconds * 60 + Number(part), 0)
+}
+
 function updateAutoScroll () {
-  let pos = null
-  try {
-    const els = document.querySelectorAll('[data-testid="player-controls"] [data-testid="playback-position"],[data-testid="player-controls"] [data-testid="playback-duration"]')
-    if (els.length !== 2) {
-      throw new Error(`Expected 2 playback elements, found ${els.length}`)
-    }
-    const [current, remaining] = Array.from(els).map(e => e.textContent.trim().replace('-', '')).map(s => s.split(':').reverse().map((d, i, a) => parseInt(d) * Math.pow(60, i)).reduce((a, c) => a + c, 0))
-    pos = current / (current + remaining)
-  } catch (e) {
-    // Could not parse current song position
-    pos = null
-  }
-  if (pos != null && !Number.isNaN(pos) && lastPos !== pos) {
+  const currentElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-position"]')
+  const rightElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-duration"]')
+  if (!currentElement || !rightElement) return
+
+  const rightText = rightElement.textContent.trim()
+  const isRemaining = rightText.startsWith('-') || rightText.startsWith('−')
+  const current = parsePlaybackTime(currentElement.textContent)
+  const right = parsePlaybackTime(isRemaining ? rightText.slice(1) : rightText)
+  if (current == null || right == null) return
+
+  const duration = isRemaining ? current + right : right
+  const pos = duration > 0 ? current / duration : null
+  if (pos != null && pos >= 0 && pos <= 1 && lastPos !== pos) {
     genius.f.scrollLyrics(pos)
     lastPos = pos
   }
@@ -821,6 +831,9 @@ if (document.location.hostname === 'genius.com') {
 
         // New: 2025-12
         document.querySelectorAll('.NowPlayingView button[aria-label="Hide Now Playing view"]').forEach(function (b) {
+          b.click()
+        })
+        document.querySelectorAll('.NowPlayingView button[aria-label="Ocultar vista Em reprodução"]').forEach(function (b) {
           b.click()
         })
 
