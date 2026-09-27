@@ -276,9 +276,9 @@ function translateSearch (container) {
   const t = uiText()
   const isResults = container.dataset.searchView === 'results'
   const heading = container.querySelector('.genius-search-title')
-  if (heading) heading.textContent = isResults
-    ? `${container.dataset.resultCount} ${t.results}`
-    : t.search
+  if (heading) {
+    heading.textContent = isResults ? `${container.dataset.resultCount} ${t.results}` : t.search
+  }
   const hide = container.querySelector('.genius-search-hide')
   if (hide) hide.textContent = t.hide
   const back = container.querySelector('.genius-search-back')
@@ -291,9 +291,13 @@ function translateSearch (container) {
   const submit = container.querySelector('.genius-search-submit')
   if (submit) submit.textContent = t.searchButton
   const status = container.querySelector('.genius-search-status')
-  if (status) status.textContent = {
-    searching: t.searching, error: t.searchError, empty: t.noResults
-  }[status.dataset.status] || ''
+  if (status) {
+    status.textContent = {
+      searching: t.searching,
+      error: t.searchError,
+      empty: t.noResults
+    }[status.dataset.status] || ''
+  }
   for (const badge of container.querySelectorAll('.genius-search-badge')) {
     badge.textContent = t[badge.dataset.state] || badge.dataset.state
   }
@@ -613,53 +617,111 @@ function isPortugueseInterface () {
 // Add a dictionary and a language option here to support another interface language.
 const UI_TEXT = {
   en: {
-    language: 'Language', menuTitle: 'Options', support: 'Report a problem',
-    lyricsGroup: 'Lyrics', advanced: 'Advanced', hide: 'Hide', options: 'Options',
-    wrongLyrics: 'Wrong lyrics', back: 'Back to search', search: 'Search Genius',
-    searchHint: 'Search for a song or artist', searchButton: 'Search', searching: 'Searching…',
-    searchError: 'Search failed. Try again.', noResults: 'No results found', results: 'results', view: 'views',
-    complete: 'Complete', incomplete: 'Incomplete', instrumental: 'Instrumental',
+    language: 'Language',
+    menuTitle: 'Options',
+    support: 'Report a problem',
+    lyricsGroup: 'Lyrics',
+    advanced: 'Advanced',
+    hide: 'Hide',
+    options: 'Options',
+    wrongLyrics: 'Wrong lyrics',
+    back: 'Back to search',
+    search: 'Search Genius',
+    searchHint: 'Search for a song or artist',
+    searchButton: 'Search',
+    searching: 'Searching…',
+    searchError: 'Search failed. Try again.',
+    noResults: 'No results found',
+    results: 'results',
+    view: 'views',
+    complete: 'Complete',
+    incomplete: 'Incomplete',
+    instrumental: 'Instrumental',
     autoShow: ' Automatically show lyrics when a new song starts',
     autoShowHint: '(if disabled, use the small button in the top right corner)',
-    pip: 'Picture in Picture: ', pipHint: 'Show lyrics in a floating window if your browser supports it.',
-    pipDisabled: 'Disabled', pipHidden: 'When tab is hidden', pipAlways: 'Always',
-    firefoxSize: 'Firefox PiP size: ', firefoxFont: 'Firefox PiP font size: ',
+    pip: 'Picture in Picture: ',
+    pipHint: 'Show lyrics in a floating window if your browser supports it.',
+    pipDisabled: 'Disabled',
+    pipHidden: 'When tab is hidden',
+    pipAlways: 'Always',
+    firefoxSize: 'Firefox PiP size: ',
+    firefoxFont: 'Firefox PiP font size: ',
     firefoxHint: 'These values are saved automatically.',
-    theme: 'Theme: ', font: 'Font size: ', annotations: ' Show annotations',
+    theme: 'Theme: ',
+    font: 'Font size: ',
+    annotations: ' Show annotations',
     scroll: ' Automatic scrolling',
     spotifyLyrics: ' Show Spotify lyrics if no lyrics are found on Genius',
     submit: ' Suggest submitting Spotify lyrics to Genius',
-    suggestions: ' Hide Spotify suggestions', nowPlaying: ' Hide Spotify Now Playing View',
-    romaji: 'Romaji: ', low: 'Low Priority', high: 'High Priority',
-    compression: 'Compression: ', enabled: 'Enabled', disabled: 'Disabled',
-    close: 'Close', clearCache: 'Clear cache', cleared: 'Cleared',
-    debugOn: 'Debug is on', debugOff: 'Debug is off',
-    powered: 'Powered by ', contributors: ' and contributors.',
+    suggestions: ' Hide Spotify suggestions',
+    nowPlaying: ' Hide Spotify Now Playing View',
+    romaji: 'Romaji: ',
+    low: 'Low Priority',
+    high: 'High Priority',
+    compression: 'Compression: ',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    close: 'Close',
+    clearCache: 'Clear cache',
+    cleared: 'Cleared',
+    debugOn: 'Debug is on',
+    debugOff: 'Debug is off',
+    powered: 'Powered by ',
+    contributors: ' and contributors.',
     license: 'Licensed under the GNU General Public License v3.0'
   },
   'pt-PT': {
-    language: 'Idioma', menuTitle: 'Opções das letras', support: 'Reportar um problema',
-    lyricsGroup: 'Letras', advanced: 'Avançado', hide: 'Ocultar', options: 'Opções',
-    wrongLyrics: 'Letra errada', back: 'Voltar à pesquisa', search: 'Pesquisar no Genius',
-    searchHint: 'Pesquisar música ou artista', searchButton: 'Pesquisar', searching: 'A pesquisar…',
-    searchError: 'A pesquisa falhou. Tenta novamente.', noResults: 'Sem resultados', results: 'resultados', view: 'visualizações',
-    complete: 'Completa', incomplete: 'Incompleta', instrumental: 'Instrumental',
+    language: 'Idioma',
+    menuTitle: 'Opções das letras',
+    support: 'Reportar um problema',
+    lyricsGroup: 'Letras',
+    advanced: 'Avançado',
+    hide: 'Ocultar',
+    options: 'Opções',
+    wrongLyrics: 'Letra errada',
+    back: 'Voltar à pesquisa',
+    search: 'Pesquisar no Genius',
+    searchHint: 'Pesquisar música ou artista',
+    searchButton: 'Pesquisar',
+    searching: 'A pesquisar…',
+    searchError: 'A pesquisa falhou. Tenta novamente.',
+    noResults: 'Sem resultados',
+    results: 'resultados',
+    view: 'visualizações',
+    complete: 'Completa',
+    incomplete: 'Incompleta',
+    instrumental: 'Instrumental',
     autoShow: ' Mostrar letras automaticamente ao mudar de música',
     autoShowHint: '(se desativares, podes abri-las pelo botão no canto superior direito)',
-    pip: 'Janela flutuante: ', pipHint: 'Mostra as letras numa janela flutuante, se o navegador permitir.',
-    pipDisabled: 'Desativada', pipHidden: 'Quando o separador está oculto', pipAlways: 'Sempre',
-    firefoxSize: 'Tamanho da janela no Firefox: ', firefoxFont: 'Tamanho do texto: ',
+    pip: 'Janela flutuante: ',
+    pipHint: 'Mostra as letras numa janela flutuante, se o navegador permitir.',
+    pipDisabled: 'Desativada',
+    pipHidden: 'Quando o separador está oculto',
+    pipAlways: 'Sempre',
+    firefoxSize: 'Tamanho da janela no Firefox: ',
+    firefoxFont: 'Tamanho do texto: ',
     firefoxHint: 'Valores guardados automaticamente.',
-    theme: 'Tema: ', font: 'Tamanho do texto: ', annotations: ' Mostrar anotações',
+    theme: 'Tema: ',
+    font: 'Tamanho do texto: ',
+    annotations: ' Mostrar anotações',
     scroll: ' Deslocação automática',
     spotifyLyrics: ' Mostrar letras do Spotify quando não existem no Genius',
     submit: ' Sugerir letras do Spotify para o Genius',
-    suggestions: ' Ocultar sugestões do Spotify', nowPlaying: ' Ocultar a vista «A reproduzir» do Spotify',
-    romaji: 'Romaji: ', low: 'Prioridade baixa', high: 'Prioridade alta',
-    compression: 'Compressão: ', enabled: 'Ativada', disabled: 'Desativada',
-    close: 'Fechar', clearCache: 'Limpar cache', cleared: 'Cache limpa',
-    debugOn: 'Diagnóstico ativo', debugOff: 'Diagnóstico inativo',
-    powered: 'Criado com ', contributors: ' e colaboradores.',
+    suggestions: ' Ocultar sugestões do Spotify',
+    nowPlaying: ' Ocultar a vista «A reproduzir» do Spotify',
+    romaji: 'Romaji: ',
+    low: 'Prioridade baixa',
+    high: 'Prioridade alta',
+    compression: 'Compressão: ',
+    enabled: 'Ativada',
+    disabled: 'Desativada',
+    close: 'Fechar',
+    clearCache: 'Limpar cache',
+    cleared: 'Cache limpa',
+    debugOn: 'Diagnóstico ativo',
+    debugOff: 'Diagnóstico inativo',
+    powered: 'Criado com ',
+    contributors: ' e colaboradores.',
     license: 'Licenciado sob a GNU General Public License v3.0'
   }
 }
@@ -741,9 +803,11 @@ function translateOptionsMenu (win) {
   if (close) {
     close.textContent = t.close
     const cache = close.nextElementSibling
-    if (cache) cache.textContent = cache.textContent
-      .replace(/^(Clear cache|Limpar cache)/, t.clearCache)
-      .replace(/^(Cleared|Cache limpa)$/, t.cleared)
+    if (cache) {
+      cache.textContent = cache.textContent
+        .replace(/^(Clear cache|Limpar cache)/, t.clearCache)
+        .replace(/^(Cleared|Cache limpa)$/, t.cleared)
+    }
     const debug = cache?.nextElementSibling
     if (debug) {
       const on = debug.textContent === UI_TEXT.en.debugOn || debug.textContent === UI_TEXT['pt-PT'].debugOn
