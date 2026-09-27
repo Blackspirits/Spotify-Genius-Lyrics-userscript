@@ -14,7 +14,7 @@
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
 // @version         23.6.21.8
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/b3ee20530f3f8d0b6de4dd2ac52414b0b6477ae5/GeniusLyrics.js
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/681b6caad901ff0982c83abb6bf33b8f8f422a7e/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
