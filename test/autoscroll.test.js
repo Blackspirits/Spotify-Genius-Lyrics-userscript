@@ -96,3 +96,15 @@ test('closes the Now Playing panel with the pt-PT button label', async () => {
   await Promise.resolve()
   assert.equal(clicks, 1)
 })
+
+test('keeps English selectable on a Portuguese Spotify page', () => {
+  const { context } = player('0:30', '3:00')
+  context.document.documentElement = { lang: 'pt-PT' }
+  context.document.location.pathname = '/intl-pt/'
+  context.navigator = { language: 'en-US', languages: ['en-US'] }
+  assert.equal(vm.runInContext('uiText().menuTitle', context), 'Opções das letras')
+  vm.runInContext("uiLanguagePreference = 'en'", context)
+  assert.equal(vm.runInContext('uiText().menuTitle', context), 'Options')
+  vm.runInContext("uiLanguagePreference = 'pt-PT'", context)
+  assert.equal(vm.runInContext('uiText().searchButton', context), 'Pesquisar')
+})
