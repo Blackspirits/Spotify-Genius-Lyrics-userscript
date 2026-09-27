@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.8
+// @version         23.6.21.9
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/681b6caad901ff0982c83abb6bf33b8f8f422a7e/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -22,6 +22,7 @@
 // @grant           GM.registerMenuCommand
 // @grant           GM_openInTab
 // @connect         genius.com
+// @connect         lrclib.net
 // @match           https://open.spotify.com/*
 // @match           https://genius.com/songs/new
 // @sandbox         JavaScript
@@ -56,13 +57,17 @@ let resizeLeftContainer
 let resizeContainer
 let optionCurrentSize = 30.0
 let uiLanguagePreference = 'auto'
+let syncedLineHighlightEnabled = true
 GM.getValue('optioncurrentsize', optionCurrentSize).then(function (value) {
   optionCurrentSize = value
 })
 GM.getValue('ui_language', 'auto').then(function (value) {
-  uiLanguagePreference = value === 'en' || value === 'pt-PT' ? value : 'auto'
+  uiLanguagePreference = value === 'auto' || Object.hasOwn(UI_TEXT, value) ? value : 'auto'
   document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
   document.querySelectorAll('.genius-search-container').forEach(translateSearch)
+})
+GM.getValue('synced_line_highlight', true).then(value => {
+  syncedLineHighlightEnabled = value !== false
 })
 
 function setFrameDimensions (container, iframe, bar) {
@@ -121,6 +126,8 @@ function getCleanLyricsContainer () {
 
 function onNewSongPlaying () {
   genius.f.closeModalUIs()
+  resetSyncedLines()
+  lastPos = null
 }
 
 async function onNoResults (songTitle, songArtistsArr) {
@@ -263,6 +270,7 @@ async function fillGeniusForm () {
 }
 
 function hideLyrics () {
+  resetSyncedLines()
   addLyricsButton()
   document.querySelectorAll('.loadingspinner').forEach((spinner) => spinner.remove())
   if (document.getElementById('lyricscontainer')) {
@@ -435,6 +443,184 @@ function addLyrics (force, beLessSpecific) {
 }
 
 let lastPos = null
+let lastPlaybackTime = 0
+const syncedLines = {
+  document: null,
+  trackKey: '',
+  requestedKey: '',
+  matches: [],
+  active: null,
+  pending: false,
+  cache: new Map(),
+  blockedUntil: 0,
+  nextRequestAt: 0
+}
+
+function normalizeLyric (text) {
+  return String(text || '').normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '')
+}
+
+function parseSyncedLyrics (lrc) {
+  if (typeof lrc !== 'string' || lrc.length > 250000) return []
+  const lines = []
+  for (const row of lrc.split(/\r?\n/)) {
+    const match = row.match(/^\[(\d{1,3}):([0-5]\d)(?:\.(\d{1,3}))?\]\s*(.*)$/)
+    if (!match || !match[4].trim()) continue
+    const time = Number(match[1]) * 60 + Number(match[2]) + Number(`0.${(match[3] || '0').padEnd(2, '0')}`)
+    if (time >= 0 && lines.length < 500) lines.push({ time, text: match[4].trim() })
+  }
+  return lines.sort((a, b) => a.time - b.time)
+}
+
+function selectSyncedRecord (results, title, artist, duration) {
+  if (!Array.isArray(results) || normalizeLyric(artist).length < 2) return null
+  return results.find(item =>
+    !item.instrumental &&
+    normalizeLyric(item.trackName) === normalizeLyric(title) &&
+    normalizeLyric(item.artistName).includes(normalizeLyric(artist)) &&
+    Math.abs(Number(item.duration) - duration) <= 2 &&
+    typeof item.syncedLyrics === 'string'
+  ) || null
+}
+
+function matchSyncedLines (lyrics, timed) {
+  const visible = lyrics.map((line, index) => ({ index, normalized: normalizeLyric(line.text) }))
+    .filter(line => line.normalized.length >= 3 && !/^\[[^\]]+\]$/.test(lyrics[line.index].text.trim()))
+  const sung = timed.map(line => ({ ...line, normalized: normalizeLyric(line.text) }))
+    .filter(line => line.normalized.length >= 3)
+  let cursor = 0
+  const matches = []
+  for (const line of sung) {
+    const next = visible.findIndex((item, index) => index >= cursor && item.normalized === line.normalized)
+    if (next < 0) continue
+    matches.push({ index: visible[next].index, time: line.time })
+    cursor = next + 1
+  }
+  if (matches.length < 4 || matches.length / sung.length < 0.65 || matches.length / visible.length < 0.55) return []
+  return matches
+}
+
+function lyricGroups (iframeDocument) {
+  const result = []
+  for (const paragraph of iframeDocument.querySelectorAll('#lyrics-root [data-lyrics-container="true"] > p')) {
+    let nodes = []
+    const append = () => {
+      const text = nodes.map(node => node.textContent).join('').trim()
+      if (text) result.push({ text, nodes })
+      nodes = []
+    }
+    for (const node of [...paragraph.childNodes]) {
+      if (node.nodeName === 'BR') append()
+      else nodes.push(node)
+    }
+    append()
+  }
+  return result
+}
+
+function clearSyncedHighlight () {
+  syncedLines.active?.classList.remove('genius-synced-active')
+  syncedLines.active = null
+}
+
+function resetSyncedLines () {
+  clearSyncedHighlight()
+  syncedLines.document = null
+  syncedLines.trackKey = ''
+  syncedLines.requestedKey = ''
+  syncedLines.matches = []
+}
+
+function applySyncedLines (record, key, iframeDocument) {
+  if (syncedLines.document !== iframeDocument || syncedLines.trackKey !== key) return
+  const timed = parseSyncedLyrics(record?.syncedLyrics)
+  const groups = lyricGroups(iframeDocument)
+  const matches = matchSyncedLines(groups, timed)
+  if (!matches.length) return
+  for (const match of matches) {
+    const nodes = groups[match.index].nodes
+    const element = iframeDocument.createElement('span')
+    element.className = 'genius-synced-line'
+    nodes[0].parentNode.insertBefore(element, nodes[0])
+    for (const node of nodes) element.appendChild(node)
+    match.element = element
+  }
+  syncedLines.matches = matches
+  highlightSyncedLine(lastPlaybackTime)
+}
+
+function requestSyncedLines (duration) {
+  if (!syncedLineHighlightEnabled || !syncedLines.document || syncedLines.pending) return
+  const [status, title, artists] = getSongTitleAndArtist()
+  if (status < 0 || !artists.length || duration <= 0) return
+  const artist = artists[0]
+  const key = `${title}\t${artist}\t${Math.round(duration)}`
+  if (syncedLines.trackKey !== key) {
+    clearSyncedHighlight()
+    syncedLines.trackKey = key
+    syncedLines.matches = []
+  }
+  if (syncedLines.requestedKey === key) return
+  if (syncedLines.cache.has(key)) {
+    syncedLines.requestedKey = key
+    applySyncedLines(syncedLines.cache.get(key), key, syncedLines.document)
+    return
+  }
+  if (Date.now() < syncedLines.blockedUntil || Date.now() < syncedLines.nextRequestAt) return
+  syncedLines.pending = true
+  syncedLines.requestedKey = key
+  syncedLines.nextRequestAt = Date.now() + 500
+  const params = new URLSearchParams({ track_name: title, artist_name: artist })
+  Promise.resolve(GM.xmlHttpRequest({
+    method: 'GET',
+    url: `https://lrclib.net/api/search?${params}`,
+    headers: { 'Lrclib-Client': 'Spotify-Genius-Lyrics/23.6.21.9 (https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript)' },
+    responseType: 'json',
+    timeout: 8000
+  })).then(response => {
+    if (response.status === 429) {
+      const retry = Number(/\d+/.exec(response.responseHeaders?.match(/retry-after:\s*([^\r\n]+)/i)?.[1] || '')?.[0])
+      syncedLines.blockedUntil = Date.now() + Math.min(Math.max(retry || 60, 10), 3600) * 1000
+      return
+    }
+    const results = response.status === 200
+      ? (typeof response.response === 'string' ? JSON.parse(response.response) : response.response)
+      : []
+    const record = selectSyncedRecord(results, title, artist, duration)
+    syncedLines.cache.set(key, record || null)
+    if (syncedLines.cache.size > 20) syncedLines.cache.delete(syncedLines.cache.keys().next().value)
+    if (record) applySyncedLines(record, key, syncedLines.document)
+  }).catch(() => {
+    syncedLines.cache.set(key, null)
+  }).finally(() => {
+    syncedLines.pending = false
+    syncedLines.nextRequestAt = Date.now() + 500
+  })
+}
+
+function highlightSyncedLine (current) {
+  const matches = syncedLines.matches
+  if (!syncedLineHighlightEnabled || !matches.length) return false
+  let active = null
+  for (const match of matches) {
+    if (match.time > current) break
+    active = match.element
+  }
+  if (active !== syncedLines.active) {
+    clearSyncedHighlight()
+    if (active) {
+      active.classList.add('genius-synced-active')
+      syncedLines.active = active
+      if (genius.f.isScrollLyricsEnabled() && !syncedLines.document.hidden) {
+        const scroll = syncedLines.document.scrollingElement
+        const top = active.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.45
+        scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+      }
+    }
+  }
+  return true
+}
+
 function parsePlaybackTime (text) {
   const value = text.trim()
   if (!/^\d+:[0-5]\d(?::[0-5]\d)?$/.test(value)) return null
@@ -454,8 +640,11 @@ function updateAutoScroll () {
 
   const duration = isRemaining ? current + right : right
   const pos = duration > 0 ? current / duration : null
-  if (pos != null && pos >= 0 && pos <= 1 && lastPos !== pos) {
-    genius.f.scrollLyrics(pos)
+  if (pos != null && pos >= 0 && pos <= 1) {
+    lastPlaybackTime = current
+    requestSyncedLines(duration)
+    const hasSyncedLine = highlightSyncedLine(current)
+    if (!hasSyncedLine && lastPos !== pos) genius.f.scrollLyrics(pos)
     lastPos = pos
   }
 }
@@ -588,6 +777,22 @@ function configHideSpotifySuggestions (div) {
   input.addEventListener('change', onChange)
 }
 
+function configSyncedLineHighlight (div) {
+  const input = div.appendChild(document.createElement('input'))
+  input.type = 'checkbox'
+  input.id = 'genius-synced-line-highlight'
+  input.checked = syncedLineHighlightEnabled
+  const label = div.appendChild(document.createElement('label'))
+  label.htmlFor = input.id
+  label.textContent = ' Highlight current line when timings are available'
+  input.addEventListener('change', () => {
+    syncedLineHighlightEnabled = input.checked
+    GM.setValue('synced_line_highlight', input.checked)
+    if (!input.checked) clearSyncedHighlight()
+    else highlightSyncedLine(lastPlaybackTime)
+  })
+}
+
 function configHideSpotifyNowPlayingView (div) {
   // Input: Hide "Now Playing View"
   const id = 'input12567826'
@@ -610,15 +815,10 @@ function configHideSpotifyNowPlayingView (div) {
   input.addEventListener('change', onChange)
 }
 
-function isPortugueseInterface () {
-  const locale = [document.documentElement.lang, navigator.language, ...(navigator.languages || [])]
-  return locale.some(language => /^pt(?:-|$)/i.test(language || '')) || /^\/intl-pt(?:\/|$)/i.test(document.location.pathname)
-}
-
-// Add a dictionary and a language option here to support another interface language.
 const UI_TEXT = {
   en: {
     language: 'Language',
+    autoChoice: 'Automatic',
     menuTitle: 'Options',
     support: 'Report a problem',
     lyricsGroup: 'Lyrics',
@@ -652,6 +852,7 @@ const UI_TEXT = {
     font: 'Font size: ',
     annotations: ' Show annotations',
     scroll: ' Automatic scrolling',
+    synced: ' Highlight the current line when synchronized lyrics are available',
     spotifyLyrics: ' Show Spotify lyrics if no lyrics are found on Genius',
     submit: ' Suggest submitting Spotify lyrics to Genius',
     suggestions: ' Hide Spotify suggestions',
@@ -669,10 +870,12 @@ const UI_TEXT = {
     debugOff: 'Debug is off',
     powered: 'Powered by ',
     contributors: ' and contributors.',
+    modifications: '2026 modifications and maintenance: ',
     license: 'Licensed under the GNU General Public License v3.0'
   },
   'pt-PT': {
     language: 'Idioma',
+    autoChoice: 'Automático',
     menuTitle: 'Opções das letras',
     support: 'Reportar um problema',
     lyricsGroup: 'Letras',
@@ -706,6 +909,7 @@ const UI_TEXT = {
     font: 'Tamanho do texto: ',
     annotations: ' Mostrar anotações',
     scroll: ' Deslocação automática',
+    synced: ' Destacar a linha atual quando existir sincronização',
     spotifyLyrics: ' Mostrar letras do Spotify quando não existem no Genius',
     submit: ' Sugerir letras do Spotify para o Genius',
     suggestions: ' Ocultar sugestões do Spotify',
@@ -723,14 +927,307 @@ const UI_TEXT = {
     debugOff: 'Diagnóstico inativo',
     powered: 'Criado com ',
     contributors: ' e colaboradores.',
+    modifications: 'Alterações e manutenção em 2026: ',
     license: 'Licenciado sob a GNU General Public License v3.0'
+  },
+  'pt-BR': {
+    language: 'Idioma',
+    autoChoice: 'Automático',
+    menuTitle: 'Opções das letras',
+    support: 'Informar um problema',
+    lyricsGroup: 'Letras',
+    advanced: 'Avançado',
+    hide: 'Ocultar',
+    options: 'Opções',
+    wrongLyrics: 'Letra incorreta',
+    back: 'Voltar à busca',
+    search: 'Buscar no Genius',
+    searchHint: 'Buscar música ou artista',
+    searchButton: 'Buscar',
+    searching: 'Buscando…',
+    searchError: 'A busca falhou. Tente novamente.',
+    noResults: 'Nenhum resultado',
+    results: 'resultados',
+    view: 'visualizações',
+    complete: 'Completa',
+    incomplete: 'Incompleta',
+    instrumental: 'Instrumental',
+    autoShow: ' Mostrar letras ao mudar de música',
+    autoShowHint: '(se desativado, use o botão no canto superior direito)',
+    pip: 'Janela flutuante: ',
+    pipHint: 'Mostra as letras em uma janela flutuante, se o navegador permitir.',
+    pipDisabled: 'Desativada',
+    pipHidden: 'Quando a aba estiver oculta',
+    pipAlways: 'Sempre',
+    firefoxSize: 'Tamanho da janela no Firefox: ',
+    firefoxFont: 'Tamanho da fonte: ',
+    firefoxHint: 'Valores salvos automaticamente.',
+    theme: 'Tema: ',
+    font: 'Tamanho da fonte: ',
+    annotations: ' Mostrar anotações',
+    scroll: ' Rolagem automática',
+    synced: ' Destacar a linha atual quando houver sincronização',
+    spotifyLyrics: ' Mostrar letras do Spotify quando não houver no Genius',
+    submit: ' Sugerir letras do Spotify para o Genius',
+    suggestions: ' Ocultar sugestões do Spotify',
+    nowPlaying: ' Ocultar a visualização «Tocando agora» do Spotify',
+    romaji: 'Romaji: ',
+    low: 'Prioridade baixa',
+    high: 'Prioridade alta',
+    compression: 'Compressão: ',
+    enabled: 'Ativada',
+    disabled: 'Desativada',
+    close: 'Fechar',
+    clearCache: 'Limpar cache',
+    cleared: 'Cache limpa',
+    debugOn: 'Diagnóstico ativado',
+    debugOff: 'Diagnóstico desativado',
+    powered: 'Criado com ',
+    contributors: ' e colaboradores.',
+    modifications: 'Modificações e manutenção em 2026: ',
+    license: 'Licenciado sob a GNU General Public License v3.0'
+  },
+  es: {
+    language: 'Idioma',
+    autoChoice: 'Automático',
+    menuTitle: 'Opciones de letras',
+    support: 'Informar de un problema',
+    lyricsGroup: 'Letras',
+    advanced: 'Avanzado',
+    hide: 'Ocultar',
+    options: 'Opciones',
+    wrongLyrics: 'Letra incorrecta',
+    back: 'Volver a la búsqueda',
+    search: 'Buscar en Genius',
+    searchHint: 'Buscar canción o artista',
+    searchButton: 'Buscar',
+    searching: 'Buscando…',
+    searchError: 'La búsqueda ha fallado. Inténtalo de nuevo.',
+    noResults: 'No se han encontrado resultados',
+    results: 'resultados',
+    view: 'visualizaciones',
+    complete: 'Completa',
+    incomplete: 'Incompleta',
+    instrumental: 'Instrumental',
+    autoShow: ' Mostrar letras automáticamente al cambiar de canción',
+    autoShowHint: '(si lo desactivas, usa el botón de la esquina superior derecha)',
+    pip: 'Ventana flotante: ',
+    pipHint: 'Muestra la letra en una ventana flotante si el navegador lo permite.',
+    pipDisabled: 'Desactivada',
+    pipHidden: 'Cuando la pestaña está oculta',
+    pipAlways: 'Siempre',
+    firefoxSize: 'Tamaño de la ventana en Firefox: ',
+    firefoxFont: 'Tamaño de letra: ',
+    firefoxHint: 'Los valores se guardan automáticamente.',
+    theme: 'Tema: ',
+    font: 'Tamaño de letra: ',
+    annotations: ' Mostrar anotaciones',
+    scroll: ' Desplazamiento automático',
+    synced: ' Resaltar la línea actual cuando haya letras sincronizadas',
+    spotifyLyrics: ' Mostrar letras de Spotify si no están en Genius',
+    submit: ' Sugerir enviar letras de Spotify a Genius',
+    suggestions: ' Ocultar sugerencias de Spotify',
+    nowPlaying: ' Ocultar la vista «Sonando» de Spotify',
+    romaji: 'Romaji: ',
+    low: 'Prioridad baja',
+    high: 'Prioridad alta',
+    compression: 'Compresión: ',
+    enabled: 'Activada',
+    disabled: 'Desactivada',
+    close: 'Cerrar',
+    clearCache: 'Vaciar caché',
+    cleared: 'Caché vaciada',
+    debugOn: 'Diagnóstico activado',
+    debugOff: 'Diagnóstico desactivado',
+    powered: 'Creado con ',
+    contributors: ' y colaboradores.',
+    modifications: 'Modificaciones y mantenimiento en 2026: ',
+    license: 'Bajo la Licencia Pública General GNU v3.0'
+  },
+  fr: {
+    language: 'Langue',
+    autoChoice: 'Automatique',
+    menuTitle: 'Options des paroles',
+    support: 'Signaler un problème',
+    lyricsGroup: 'Paroles',
+    advanced: 'Avancé',
+    hide: 'Masquer',
+    options: 'Options',
+    wrongLyrics: 'Paroles incorrectes',
+    back: 'Retour à la recherche',
+    search: 'Rechercher sur Genius',
+    searchHint: 'Rechercher un titre ou un artiste',
+    searchButton: 'Rechercher',
+    searching: 'Recherche en cours…',
+    searchError: 'La recherche a échoué. Réessaie.',
+    noResults: 'Aucun résultat',
+    results: 'résultats',
+    view: 'vues',
+    complete: 'Complètes',
+    incomplete: 'Incomplètes',
+    instrumental: 'Instrumental',
+    autoShow: ' Afficher les paroles automatiquement au changement de titre',
+    autoShowHint: '(sinon, utilise le bouton en haut à droite)',
+    pip: 'Fenêtre flottante : ',
+    pipHint: 'Affiche les paroles dans une fenêtre flottante si le navigateur le permet.',
+    pipDisabled: 'Désactivée',
+    pipHidden: 'Quand l’onglet est masqué',
+    pipAlways: 'Toujours',
+    firefoxSize: 'Taille de la fenêtre Firefox : ',
+    firefoxFont: 'Taille du texte : ',
+    firefoxHint: 'Ces valeurs sont enregistrées automatiquement.',
+    theme: 'Thème : ',
+    font: 'Taille du texte : ',
+    annotations: ' Afficher les annotations',
+    scroll: ' Défilement automatique',
+    synced: ' Surligner la ligne actuelle si les paroles sont synchronisées',
+    spotifyLyrics: ' Afficher les paroles Spotify si Genius n’en propose pas',
+    submit: ' Proposer les paroles Spotify à Genius',
+    suggestions: ' Masquer les suggestions Spotify',
+    nowPlaying: ' Masquer la vue « En cours de lecture » de Spotify',
+    romaji: 'Romaji : ',
+    low: 'Priorité basse',
+    high: 'Priorité haute',
+    compression: 'Compression : ',
+    enabled: 'Activée',
+    disabled: 'Désactivée',
+    close: 'Fermer',
+    clearCache: 'Vider le cache',
+    cleared: 'Cache vidé',
+    debugOn: 'Diagnostic activé',
+    debugOff: 'Diagnostic désactivé',
+    powered: 'Avec ',
+    contributors: ' et contributeurs.',
+    modifications: 'Modifications et maintenance en 2026 : ',
+    license: 'Sous licence publique générale GNU v3.0'
+  },
+  de: {
+    language: 'Sprache',
+    autoChoice: 'Automatisch',
+    menuTitle: 'Liedtext-Optionen',
+    support: 'Problem melden',
+    lyricsGroup: 'Liedtext',
+    advanced: 'Erweitert',
+    hide: 'Ausblenden',
+    options: 'Optionen',
+    wrongLyrics: 'Falscher Liedtext',
+    back: 'Zurück zur Suche',
+    search: 'Genius durchsuchen',
+    searchHint: 'Nach Titel oder Interpret suchen',
+    searchButton: 'Suchen',
+    searching: 'Suche läuft…',
+    searchError: 'Suche fehlgeschlagen. Bitte erneut versuchen.',
+    noResults: 'Keine Ergebnisse',
+    results: 'Ergebnisse',
+    view: 'Aufrufe',
+    complete: 'Vollständig',
+    incomplete: 'Unvollständig',
+    instrumental: 'Instrumental',
+    autoShow: ' Liedtext bei neuem Titel automatisch anzeigen',
+    autoShowHint: '(sonst die Schaltfläche oben rechts verwenden)',
+    pip: 'Schwebendes Fenster: ',
+    pipHint: 'Liedtext in einem schwebenden Fenster anzeigen, falls unterstützt.',
+    pipDisabled: 'Deaktiviert',
+    pipHidden: 'Wenn der Tab verborgen ist',
+    pipAlways: 'Immer',
+    firefoxSize: 'Firefox-Fenstergröße: ',
+    firefoxFont: 'Schriftgröße im Fenster: ',
+    firefoxHint: 'Werte werden automatisch gespeichert.',
+    theme: 'Design: ',
+    font: 'Schriftgröße: ',
+    annotations: ' Anmerkungen anzeigen',
+    scroll: ' Automatisches Scrollen',
+    synced: ' Aktuelle Zeile bei synchronisiertem Liedtext hervorheben',
+    spotifyLyrics: ' Spotify-Liedtext anzeigen, wenn Genius keinen findet',
+    submit: ' Spotify-Liedtext für Genius vorschlagen',
+    suggestions: ' Spotify-Hinweise ausblenden',
+    nowPlaying: ' Spotifys Ansicht „Aktueller Titel“ ausblenden',
+    romaji: 'Romaji: ',
+    low: 'Niedrige Priorität',
+    high: 'Hohe Priorität',
+    compression: 'Komprimierung: ',
+    enabled: 'Aktiviert',
+    disabled: 'Deaktiviert',
+    close: 'Schließen',
+    clearCache: 'Cache leeren',
+    cleared: 'Cache geleert',
+    debugOn: 'Diagnose aktiviert',
+    debugOff: 'Diagnose deaktiviert',
+    powered: 'Mit ',
+    contributors: ' und Mitwirkenden.',
+    modifications: 'Änderungen und Pflege 2026: ',
+    license: 'Lizenziert unter der GNU General Public License v3.0'
+  },
+  it: {
+    language: 'Lingua',
+    autoChoice: 'Automatico',
+    menuTitle: 'Opzioni dei testi',
+    support: 'Segnala un problema',
+    lyricsGroup: 'Testi',
+    advanced: 'Avanzate',
+    hide: 'Nascondi',
+    options: 'Opzioni',
+    wrongLyrics: 'Testo errato',
+    back: 'Torna alla ricerca',
+    search: 'Cerca su Genius',
+    searchHint: 'Cerca un brano o un artista',
+    searchButton: 'Cerca',
+    searching: 'Ricerca in corso…',
+    searchError: 'Ricerca non riuscita. Riprova.',
+    noResults: 'Nessun risultato',
+    results: 'risultati',
+    view: 'visualizzazioni',
+    complete: 'Completo',
+    incomplete: 'Incompleto',
+    instrumental: 'Strumentale',
+    autoShow: ' Mostra automaticamente i testi quando cambia il brano',
+    autoShowHint: '(se disattivato, usa il pulsante in alto a destra)',
+    pip: 'Finestra mobile: ',
+    pipHint: 'Mostra i testi in una finestra mobile se il browser lo consente.',
+    pipDisabled: 'Disattivata',
+    pipHidden: 'Quando la scheda è nascosta',
+    pipAlways: 'Sempre',
+    firefoxSize: 'Dimensioni finestra Firefox: ',
+    firefoxFont: 'Dimensione testo: ',
+    firefoxHint: 'I valori vengono salvati automaticamente.',
+    theme: 'Tema: ',
+    font: 'Dimensione testo: ',
+    annotations: ' Mostra annotazioni',
+    scroll: ' Scorrimento automatico',
+    synced: ' Evidenzia la riga corrente quando il testo è sincronizzato',
+    spotifyLyrics: ' Mostra i testi di Spotify se Genius non li trova',
+    submit: ' Suggerisci di inviare i testi Spotify a Genius',
+    suggestions: ' Nascondi i suggerimenti Spotify',
+    nowPlaying: ' Nascondi la vista «In riproduzione» di Spotify',
+    romaji: 'Romaji: ',
+    low: 'Priorità bassa',
+    high: 'Priorità alta',
+    compression: 'Compressione: ',
+    enabled: 'Attivata',
+    disabled: 'Disattivata',
+    close: 'Chiudi',
+    clearCache: 'Svuota cache',
+    cleared: 'Cache svuotata',
+    debugOn: 'Diagnostica attiva',
+    debugOff: 'Diagnostica disattivata',
+    powered: 'Basato su ',
+    contributors: ' e collaboratori.',
+    modifications: 'Modifiche e manutenzione nel 2026: ',
+    license: 'Con licenza GNU General Public License v3.0'
   }
 }
 
+function detectUiLanguage () {
+  if (/^\/intl-pt(?:\/|$)/i.test(document.location.pathname)) return 'pt-PT'
+  const locale = document.documentElement.lang || navigator.language || navigator.languages?.[0] || ''
+  if (/^pt-br(?:-|$)/i.test(locale)) return 'pt-BR'
+  if (/^pt(?:-|$)/i.test(locale)) return 'pt-PT'
+  const base = locale.split('-')[0].toLowerCase()
+  return Object.hasOwn(UI_TEXT, base) ? base : 'en'
+}
+
 function uiText () {
-  const language = uiLanguagePreference === 'auto'
-    ? (isPortugueseInterface() ? 'pt-PT' : 'en')
-    : uiLanguagePreference
+  const language = uiLanguagePreference === 'auto' ? detectUiLanguage() : uiLanguagePreference
   return UI_TEXT[language] || UI_TEXT.en
 }
 
@@ -769,10 +1266,13 @@ function translateOptionsMenu (win) {
       if (names[option.value]) option.textContent = names[option.value]
     }
   }
+  const hasTranslation = (key, value) => Object.values(UI_TEXT).some(locale => locale[key] === value)
   win.querySelector('h1').textContent = t.menuTitle
   const support = win.querySelector(':scope > a')
   if (support) support.textContent = t.support
   label('genius-ui-language', t.language + ': ')
+  const automatic = win.querySelector('#genius-ui-language option[value="auto"]')
+  if (automatic) automatic.textContent = t.autoChoice
   label('checkAutoShow748', t.autoShow)
   hint('checkAutoShow748', t.autoShowHint)
   label('selectPictureInPictureMode748', t.pip)
@@ -785,13 +1285,14 @@ function translateOptionsMenu (win) {
     const labels = firefox.querySelectorAll('label')
     if (labels[0]) labels[0].textContent = t.firefoxSize
     if (labels[1]) labels[1].textContent = t.firefoxFont
-    const firefoxHint = [...firefox.childNodes].find(node => node.nodeType === 3 && /These values|Valores guardados/.test(node.textContent))
+    const firefoxHint = [...firefox.childNodes].find(node => node.nodeType === 3 && hasTranslation('firefoxHint', node.textContent))
     if (firefoxHint) firefoxHint.textContent = t.firefoxHint
   }
   selectLabel('selectTheme748', t.theme)
   label('inputFontSize748', t.font)
   label('checkAnnotationsEnabled748', t.annotations)
   label('checkAutoScrollEnabled748', t.scroll)
+  label('genius-synced-line-highlight', t.synced)
   label('input945455', t.spotifyLyrics)
   label('input337565', t.submit)
   label('input875687', t.suggestions)
@@ -805,13 +1306,13 @@ function translateOptionsMenu (win) {
     close.textContent = t.close
     const cache = close.nextElementSibling
     if (cache) {
-      cache.textContent = cache.textContent
-        .replace(/^(Clear cache|Limpar cache)/, t.clearCache)
-        .replace(/^(Cleared|Cache limpa)$/, t.cleared)
+      const cleared = Object.values(UI_TEXT).some(locale => cache.textContent === locale.cleared)
+      const oldLabel = Object.values(UI_TEXT).map(locale => locale.clearCache).find(value => cache.textContent.startsWith(value))
+      cache.textContent = cleared ? t.cleared : (oldLabel ? t.clearCache + cache.textContent.slice(oldLabel.length) : cache.textContent)
     }
     const debug = cache?.nextElementSibling
     if (debug) {
-      const on = debug.textContent === UI_TEXT.en.debugOn || debug.textContent === UI_TEXT['pt-PT'].debugOn
+      const on = hasTranslation('debugOn', debug.textContent)
       debug.textContent = on ? t.debugOn : t.debugOff
     }
   }
@@ -823,9 +1324,10 @@ function translateOptionsMenu (win) {
   const footer = win.lastElementChild?.querySelector('p')
   for (const text of footer?.childNodes || []) {
     if (text.nodeType !== 3) continue
-    if (/^(Powered by |Criado com )$/.test(text.textContent)) text.textContent = t.powered
-    if (/^( and contributors\.| e colaboradores\.)$/.test(text.textContent)) text.textContent = t.contributors
-    if (/^(Licensed under|Licenciado sob)/.test(text.textContent)) text.textContent = t.license
+    if (hasTranslation('powered', text.textContent)) text.textContent = t.powered
+    if (hasTranslation('contributors', text.textContent)) text.textContent = t.contributors
+    if (hasTranslation('modifications', text.textContent)) text.textContent = t.modifications
+    if (hasTranslation('license', text.textContent)) text.textContent = t.license
   }
 }
 
@@ -838,6 +1340,7 @@ function styleOptionsMenu (win) {
   const fontSize = row('inputFontSize748')
   const annotations = row('checkAnnotationsEnabled748')
   const autoScroll = row('checkAutoScrollEnabled748')
+  const synced = row('genius-synced-line-highlight')
   const spotifyLyrics = row('input945455')
   const submitLyrics = row('input337565')
   const hideSuggestions = row('input875687')
@@ -854,7 +1357,11 @@ function styleOptionsMenu (win) {
   languageLabel.htmlFor = 'genius-ui-language'
   const language = languageRow.appendChild(document.createElement('select'))
   language.id = 'genius-ui-language'
-  for (const [value, title] of [['auto', 'Auto / Automático'], ['en', 'English'], ['pt-PT', 'Português (Portugal)']]) {
+  for (const [value, title] of [
+    ['auto', uiText().autoChoice], ['en', 'English'], ['pt-PT', 'Português (Portugal)'],
+    ['pt-BR', 'Português (Brasil)'], ['es', 'Español'], ['fr', 'Français'],
+    ['de', 'Deutsch'], ['it', 'Italiano']
+  ]) {
     const option = language.appendChild(document.createElement('option'))
     option.value = value
     option.textContent = title
@@ -876,7 +1383,7 @@ function styleOptionsMenu (win) {
     heading.textContent = title
     addRows(section, rows)
   }
-  createSection('Lyrics', [autoShow, theme, fontSize, annotations, autoScroll], 'genius-options-lyrics')
+  createSection('Lyrics', [autoShow, theme, fontSize, annotations, autoScroll, synced], 'genius-options-lyrics')
   createSection('Spotify', [spotifyLyrics, submitLyrics, hideSuggestions, hideNowPlaying], 'genius-options-spotify')
   const advanced = win.insertBefore(document.createElement('details'), actions)
   advanced.className = 'genius-options-advanced'
@@ -907,7 +1414,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.8 · GeniusLyrics v5.16.21.4'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.9 · GeniusLyrics v5.16.21.4'
   }
   translateOptionsMenu(win)
 }
@@ -1359,6 +1866,28 @@ function styleCompactLyricsFrame ({ document: iframeDocument, theme }) {
   iframeDocument.head.appendChild(style)
 }
 
+function onLyricsFrameReady (details) {
+  styleCompactLyricsFrame(details)
+  clearSyncedHighlight()
+  syncedLines.document = details.document
+  syncedLines.requestedKey = ''
+  syncedLines.matches = []
+  const style = details.document.createElement('style')
+  style.textContent = `
+    #lyrics-root .genius-synced-line {
+      border-left: 3px solid transparent;
+      padding-left: 5px;
+      transition: background-color .25s, border-color .25s;
+    }
+    #lyrics-root .genius-synced-active {
+      border-left-color: #1ed760;
+      background: rgba(30, 215, 96, .15);
+      border-radius: 3px;
+    }
+  `
+  details.document.head.appendChild(style)
+}
+
 function styleIframeContent () {
   if (genius.option.themeKey === 'genius' || genius.option.themeKey === 'geniusReact') {
     genius.style.enabled = true
@@ -1487,12 +2016,13 @@ if (document.location.hostname === 'genius.com') {
     setFrameDimensions,
     initResize,
     onResize,
-    iframeLoadedCallback2: styleCompactLyricsFrame,
+    iframeLoadedCallback2: onLyricsFrameReady,
     onLyricsBarReady: styleLyricsBar,
     onOptionsReady: styleOptionsMenu,
     config: [
       configShowSpotifyLyrics,
       configSubmitSpotifyLyrics,
+      configSyncedLineHighlight,
       configHideSpotifySuggestions,
       configHideSpotifyNowPlayingView
     ],
