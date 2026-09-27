@@ -666,7 +666,7 @@ function styleOptionsMenu (win) {
       if (text) text.textContent = label
     }
     const translateSelect = (element, label) => {
-      const text = [...(element?.childNodes || [])].find(node => node.nodeType === Node.TEXT_NODE)
+      const text = [...(element?.childNodes || [])].find(node => node.nodeType === 3)
       if (text) text.textContent = label
     }
     const translateOptions = (element, labels) => {
@@ -677,7 +677,7 @@ function styleOptionsMenu (win) {
 
     win.querySelector('h1').textContent = 'Opções das letras'
     translateLabel(autoShow, ' Mostrar letras automaticamente ao mudar de música')
-    const autoShowHint = [...(autoShow?.childNodes || [])].find(node => node.nodeType === Node.TEXT_NODE)
+    const autoShowHint = [...(autoShow?.childNodes || [])].find(node => node.nodeType === 3)
     if (autoShowHint) autoShowHint.textContent = '(se desativares, podes abri-las pelo botão no canto superior direito)'
     translateLabel(pictureInPicture, 'Janela flutuante: ')
     translateOptions(pictureInPicture, {
@@ -685,13 +685,13 @@ function styleOptionsMenu (win) {
       'when-tab-is-hidden': 'Quando o separador está oculto',
       always: 'Sempre'
     })
-    const pipHint = [...(pictureInPicture?.childNodes || [])].find(node => node.nodeType === Node.TEXT_NODE)
+    const pipHint = [...(pictureInPicture?.childNodes || [])].find(node => node.nodeType === 3)
     if (pipHint) pipHint.textContent = 'Mostra as letras numa janela flutuante, se o navegador permitir.'
     if (firefoxPictureInPicture) {
       const firefoxLabels = firefoxPictureInPicture.querySelectorAll('label')
       if (firefoxLabels[0]) firefoxLabels[0].textContent = 'Tamanho da janela no Firefox: '
       if (firefoxLabels[1]) firefoxLabels[1].textContent = 'Tamanho do texto: '
-      const firefoxHint = [...firefoxPictureInPicture.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.startsWith('These values'))
+      const firefoxHint = [...firefoxPictureInPicture.childNodes].find(node => node.nodeType === 3 && node.textContent.startsWith('These values'))
       if (firefoxHint) firefoxHint.textContent = 'Valores guardados automaticamente.'
     }
     translateSelect(theme, 'Tema: ')
@@ -711,7 +711,7 @@ function styleOptionsMenu (win) {
     if (clearCache) {
       clearCache.textContent = clearCache.textContent.replace('Clear cache', 'Limpar cache')
       clearCache.addEventListener('click', () => {
-        const observer = new MutationObserver(() => {
+        const observer = new window.MutationObserver(() => {
           if (clearCache.textContent === 'Cleared') {
             clearCache.textContent = 'Cache limpa'
             observer.disconnect()
@@ -728,7 +728,7 @@ function styleOptionsMenu (win) {
       }
       translateDebug()
       debug.addEventListener('click', () => {
-        const observer = new MutationObserver(() => {
+        const observer = new window.MutationObserver(() => {
           translateDebug()
           observer.disconnect()
         })
