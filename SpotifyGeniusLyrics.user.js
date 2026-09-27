@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.6
+// @version         23.6.21.7
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/c12a087e81b04aa5a13fc68c47d8bb704c3a04a3/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -906,7 +906,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.6 · GeniusLyrics v5.16.21.3'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.7 · GeniusLyrics v5.16.21.3'
   }
   translateOptionsMenu(win)
 }
@@ -1312,23 +1312,16 @@ function styleCompactLyricsFrame ({ document: iframeDocument, theme }) {
   const style = iframeDocument.createElement('style')
   style.textContent = `
     html .lyrics_body_pad {
-      position: relative;
-      padding-top: max(50vh, 175px);
+      padding-top: 0;
     }
     .myheader {
       box-sizing: border-box;
-      position: absolute;
-      top: 12px;
-      left: 0;
-      right: 0;
       display: flex;
       align-items: flex-start;
       gap: 12px;
       max-width: none;
-      max-height: calc(max(50vh, 175px) - 18px);
-      margin: 0 10px;
+      margin: 0 10px 14px;
       padding: 0 0 12px;
-      overflow: auto;
     }
     .genius-cover-link {
       flex: 0 0 72px;
