@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/c368ca27ca5908cb68e1f103aea8a28acf311340/GeniusLyrics.js
+// @version         23.6.21.5
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/cfccfd8b9732d9b62c41be86746ee04ba22e11dd/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -621,6 +621,144 @@ function configHideSpotifyNowPlayingView (div) {
   input.addEventListener('change', onChange)
 }
 
+function isPortugueseInterface () {
+  const locale = [document.documentElement.lang, navigator.language, ...(navigator.languages || [])]
+  return locale.some(language => /^pt(?:-|$)/i.test(language || '')) || /^\/intl-pt(?:\/|$)/i.test(document.location.pathname)
+}
+
+function styleLyricsBar (bar) {
+  if (!isPortugueseInterface()) return
+
+  const labels = {
+    '.genius-lyrics-hide-button': 'Ocultar',
+    '.genius-lyrics-config-button': 'Opções',
+    '.genius-lyrics-wronglyrics-button': 'Letra errada'
+  }
+  for (const [selector, label] of Object.entries(labels)) {
+    const button = bar.querySelector(selector)
+    if (button) button.textContent = label
+  }
+  const back = bar.querySelector('.genius-lyrics-back-button')
+  if (back) back.textContent = 'Voltar à pesquisa'
+}
+
+function styleOptionsMenu (win) {
+  const portuguese = isPortugueseInterface()
+  const row = id => win.querySelector(`#${id}`)?.parentElement
+  const autoShow = row('checkAutoShow748')
+  const pictureInPicture = row('selectPictureInPictureMode748')
+  const firefoxPictureInPicture = row('firefoxPiPWidth748')
+  const theme = row('selectTheme748')
+  const fontSize = row('inputFontSize748')
+  const annotations = row('checkAnnotationsEnabled748')
+  const autoScroll = row('checkAutoScrollEnabled748')
+  const spotifyLyrics = row('input945455')
+  const submitLyrics = row('input337565')
+  const hideSuggestions = row('input875687')
+  const hideNowPlaying = row('input12567826')
+  const romaji = row('selectRomajiPriority748')
+  const compression = row('selectLZCompression748')
+  const close = win.querySelector('#myconfigwin39457845_close_button')
+
+  if (portuguese) {
+    const translateLabel = (element, label) => {
+      const text = element?.querySelector('label')
+      if (text) text.textContent = label
+    }
+    const translateSelect = (element, label) => {
+      const text = [...(element?.childNodes || [])].find(node => node.nodeType === Node.TEXT_NODE)
+      if (text) text.textContent = label
+    }
+    const translateOptions = (element, labels) => {
+      for (const option of element?.querySelectorAll('option') || []) {
+        if (labels[option.value]) option.textContent = labels[option.value]
+      }
+    }
+
+    win.querySelector('h1').textContent = 'Opções das letras'
+    translateLabel(autoShow, ' Mostrar letras automaticamente ao mudar de música')
+    const autoShowHint = [...(autoShow?.childNodes || [])].find(node => node.nodeType === Node.TEXT_NODE)
+    if (autoShowHint) autoShowHint.textContent = '(se desativares, podes abri-las pelo botão no canto superior direito)'
+    translateLabel(pictureInPicture, 'Janela flutuante: ')
+    translateOptions(pictureInPicture, {
+      disabled: 'Desativada',
+      'when-tab-is-hidden': 'Quando o separador está oculto',
+      always: 'Sempre'
+    })
+    const pipHint = [...(pictureInPicture?.childNodes || [])].find(node => node.nodeType === Node.TEXT_NODE)
+    if (pipHint) pipHint.textContent = 'Mostra as letras numa janela flutuante, se o navegador permitir.'
+    if (firefoxPictureInPicture) {
+      const firefoxLabels = firefoxPictureInPicture.querySelectorAll('label')
+      if (firefoxLabels[0]) firefoxLabels[0].textContent = 'Tamanho da janela no Firefox: '
+      if (firefoxLabels[1]) firefoxLabels[1].textContent = 'Tamanho do texto: '
+      const firefoxHint = [...firefoxPictureInPicture.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.startsWith('These values'))
+      if (firefoxHint) firefoxHint.textContent = 'Valores guardados automaticamente.'
+    }
+    translateSelect(theme, 'Tema: ')
+    translateLabel(fontSize, 'Tamanho do texto: ')
+    translateLabel(annotations, ' Mostrar anotações')
+    translateLabel(autoScroll, ' Deslocação automática')
+    translateLabel(spotifyLyrics, ' Mostrar letras do Spotify quando não existem no Genius')
+    translateLabel(submitLyrics, ' Sugerir letras do Spotify para o Genius')
+    translateLabel(hideSuggestions, ' Ocultar sugestões do Spotify')
+    translateLabel(hideNowPlaying, ' Ocultar a vista «A reproduzir» do Spotify')
+    translateSelect(romaji, 'Romaji: ')
+    translateOptions(romaji, { low: 'Prioridade baixa', high: 'Prioridade alta' })
+    translateSelect(compression, 'Compressão: ')
+    translateOptions(compression, { true: 'Ativada', false: 'Desativada' })
+    if (close) close.textContent = 'Fechar'
+    const clearCache = close?.nextElementSibling
+    if (clearCache) {
+      clearCache.textContent = clearCache.textContent.replace('Clear cache', 'Limpar cache')
+      clearCache.addEventListener('click', () => {
+        const observer = new MutationObserver(() => {
+          if (clearCache.textContent === 'Cleared') {
+            clearCache.textContent = 'Cache limpa'
+            observer.disconnect()
+          }
+        })
+        observer.observe(clearCache, { childList: true })
+      })
+    }
+    const debug = clearCache?.nextElementSibling
+    if (debug) {
+      debug.title = 'Ativar apenas para diagnóstico.'
+      const translateDebug = () => {
+        debug.textContent = debug.textContent.replace('Debug is on', 'Diagnóstico ativo').replace('Debug is off', 'Diagnóstico inativo')
+      }
+      translateDebug()
+      debug.addEventListener('click', () => {
+        const observer = new MutationObserver(() => {
+          translateDebug()
+          observer.disconnect()
+        })
+        observer.observe(debug, { childList: true })
+      })
+    }
+  }
+
+  const actions = close?.parentElement
+  if (!autoShow || !actions) return
+  const addRows = (parent, rows) => rows.filter(Boolean).forEach(element => parent.appendChild(element))
+  const createSection = (title, rows) => {
+    const section = win.insertBefore(document.createElement('section'), actions)
+    section.className = 'genius-options-group'
+    const heading = section.appendChild(document.createElement('h2'))
+    heading.textContent = title
+    addRows(section, rows)
+    return section
+  }
+
+  createSection(portuguese ? 'Letras' : 'Lyrics', [autoShow, theme, fontSize, annotations, autoScroll])
+  createSection('Spotify', [spotifyLyrics, submitLyrics, hideSuggestions, hideNowPlaying])
+  const advanced = win.insertBefore(document.createElement('details'), actions)
+  advanced.className = 'genius-options-advanced'
+  const summary = advanced.appendChild(document.createElement('summary'))
+  summary.textContent = portuguese ? 'Avançado' : 'Advanced'
+  addRows(advanced, [pictureInPicture, firefoxPictureInPicture, romaji, compression])
+  if (pictureInPicture?.querySelector('select')?.value !== 'disabled') advanced.open = true
+}
+
 function addCss () {
   document.head.appendChild(document.createElement('style')).innerHTML = `
   .lyricsiframe {
@@ -714,6 +852,43 @@ function addCss () {
     border: 1px solid #ffffff18;
     border-radius: 8px;
     background: #262626;
+  }
+  #myconfigwin39457845 .genius-options-group,
+  #myconfigwin39457845 .genius-options-advanced {
+    display: block;
+    margin: 16px 0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  #myconfigwin39457845 .genius-options-group h2,
+  #myconfigwin39457845 .genius-options-advanced summary {
+    margin: 0 0 6px;
+    color: #b3b3b3;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .03em;
+  }
+  #myconfigwin39457845 .genius-options-advanced summary {
+    padding: 8px 2px;
+    cursor: pointer;
+  }
+  #myconfigwin39457845 .genius-options-group > div,
+  #myconfigwin39457845 .genius-options-advanced > div {
+    box-sizing: border-box;
+    margin: 6px 0;
+    padding: 9px 12px;
+    border: 1px solid #ffffff18;
+    border-radius: 8px;
+    background: #262626;
+  }
+  #myconfigwin39457845 .genius-options-group > div label,
+  #myconfigwin39457845 .genius-options-advanced > div label {
+    line-height: 1.4;
+  }
+  #myconfigwin39457845 .genius-options-advanced summary:focus-visible {
+    outline: 2px solid #1ed760;
+    outline-offset: 2px;
   }
   #myconfigwin39457845 input[type=checkbox] {
     accent-color: #1ed760;
@@ -986,6 +1161,8 @@ if (document.location.hostname === 'genius.com') {
     initResize,
     onResize,
     iframeLoadedCallback2: styleSpotifyLyricsFrame,
+    onLyricsBarReady: styleLyricsBar,
+    onOptionsReady: styleOptionsMenu,
     config: [
       configShowSpotifyLyrics,
       configSubmitSpotifyLyrics,
