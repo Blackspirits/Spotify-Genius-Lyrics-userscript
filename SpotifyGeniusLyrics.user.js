@@ -636,26 +636,125 @@ function addCss () {
     cursor:progress
   }
   .lyricsnavbar {
-    background-color: rgb(80, 80, 80);
-    background-image: linear-gradient(rgba(0, 0, 0, 0.6), rgb(18, 18, 18));
-    border-radius: 8px 8px 0px 0px;
-    margin: 8px 0px 0px 0px;
-    padding:0px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    min-height: 44px;
+    margin: 0;
+    padding: 5px 8px;
+    background: #181818;
+    border-bottom: 1px solid #ffffff26;
+    font-size: 12px !important;
   }
 
-  .lyricsnavbar span,.lyricsnavbar a:link,.lyricsnavbar a:visited {
-    color: rgb(179, 179, 179);
-    text-decoration:none;
-    transition:color 400ms;
+  .lyricsnavbar > span:not(.second-line-separator) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    color: #d6d6d6;
+    transition: background-color 160ms, color 160ms;
   }
-  .lyricsnavbar a:hover,.lyricsnavbar span:hover {
-    color:white;
-    text-decoration:none;
+  .lyricsnavbar > span:not(.second-line-separator):hover {
+    color: #fff;
+    background: #ffffff1a;
   }
-  .lyricsnavbar .second-line-separator,.lyricsnavbar .second-line-separator:hover {
-    padding:0px 10px !important;
-    color: transparent;
-    vertical-align: text-bottom;
+  .lyricsnavbar .second-line-separator {
+    display: none;
+  }
+  .lyricsnavbar .genius-lyrics-config-button {
+    color: #fff;
+  }
+
+  #myoverlay7658438 {
+    background: #000b;
+  }
+  #myconfigwin39457845 {
+    box-sizing: border-box;
+    width: min(600px, calc(100vw - 32px));
+    max-width: none;
+    max-height: calc(100vh - 32px);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 22px;
+    border: 1px solid #ffffff30;
+    border-radius: 14px;
+    background: #1c1c1c;
+    color: #f5f5f5;
+    box-shadow: 0 20px 60px #0009;
+    font-size: 14px;
+    line-height: 1.5;
+    scrollbar-color: #696969 #1c1c1c;
+  }
+  #myconfigwin39457845 h1 {
+    padding: 0;
+    margin: 0 0 8px;
+    font-size: 24px;
+  }
+  #myconfigwin39457845 > a:link,
+  #myconfigwin39457845 > a:visited {
+    display: block;
+    margin-bottom: 16px;
+    color: #b3eac6;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  #myconfigwin39457845 > a:hover {
+    color: #d4f8df;
+    font-size: 12px;
+  }
+  #myconfigwin39457845 > div {
+    box-sizing: border-box;
+    margin: 8px 0;
+    padding: 12px 14px;
+    border: 1px solid #ffffff18;
+    border-radius: 8px;
+    background: #262626;
+  }
+  #myconfigwin39457845 input[type=checkbox] {
+    accent-color: #1ed760;
+  }
+  #myconfigwin39457845 label {
+    cursor: pointer;
+  }
+  #myconfigwin39457845 select,
+  #myconfigwin39457845 input[type=number],
+  #myconfigwin39457845 input[type=text] {
+    max-width: 100%;
+    padding: 5px 7px;
+    border: 1px solid #ffffff40;
+    border-radius: 5px;
+    background: #333;
+    color: #fff;
+    font: inherit;
+  }
+  #myconfigwin39457845 button {
+    margin: 2px 6px 2px 0;
+    padding: 6px 10px;
+    border: 1px solid #ffffff40;
+    border-radius: 6px;
+    background: #383838;
+    color: #fff;
+    font: inherit;
+  }
+  #myconfigwin39457845 button:hover,
+  #myconfigwin39457845 button:focus-visible {
+    background: #4b4b4b;
+    border-color: #fff8;
+  }
+  #myconfigwin39457845_close_button {
+    background: #1ed760 !important;
+    border-color: #1ed760 !important;
+    color: #121212 !important;
+    font-weight: 700 !important;
+  }
+  #myconfigwin39457845 :is(button, select, input, a):focus-visible {
+    outline: 2px solid #1ed760;
+    outline-offset: 2px;
   }
   .geniushits li.tracklist-row {
     cursor:pointer
@@ -732,6 +831,30 @@ function addCss () {
   }
 
   `
+}
+
+function styleSpotifyLyricsFrame ({ document: iframeDocument, theme }) {
+  if (theme.themeKey !== 'spotify') return
+
+  const style = iframeDocument.createElement('style')
+  style.textContent = `
+    .myheader h1.mytitle {
+      line-height: 1.2;
+      margin-bottom: .25em;
+      overflow-wrap: anywhere;
+    }
+    #lyrics-root.mylyrics {
+      margin-top: 16px;
+      padding: 0 10px;
+      color: #e5e5e5;
+      line-height: 1.6;
+      overflow-wrap: break-word;
+    }
+    #lyrics-root [data-lyrics-container="true"] > p {
+      margin: 0;
+    }
+  `
+  iframeDocument.head.appendChild(style)
 }
 
 function styleIframeContent () {
@@ -862,6 +985,7 @@ if (document.location.hostname === 'genius.com') {
     setFrameDimensions,
     initResize,
     onResize,
+    iframeLoadedCallback2: styleSpotifyLyricsFrame,
     config: [
       configShowSpotifyLyrics,
       configSubmitSpotifyLyrics,
