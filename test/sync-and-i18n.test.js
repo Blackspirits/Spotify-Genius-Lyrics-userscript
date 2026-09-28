@@ -15,7 +15,10 @@ function context () {
     },
     navigator: { language: 'en', languages: ['en'] },
     GM: { getValue: async (_key, fallback) => fallback, registerMenuCommand: () => {} },
-    geniusLyrics: () => ({ f: {}, onThemeChanged: [], option: {} }),
+    geniusLyrics: options => {
+      sandbox.lyricsOptions = options
+      return { f: { scrollLyrics: () => {} }, onThemeChanged: [], option: { fontSize: 26 } }
+    },
     window: { setInterval: () => {} }
   })
   vm.runInContext(script, sandbox)
@@ -150,4 +153,44 @@ test('updates the lyric font size immediately while the options are open', () =>
   vm.runInContext('applyLiveFontSize(frame, 500)', vmContext)
   assert.equal(lyric.style.fontSize, '99px')
   assert.equal(vm.runInContext('uiText().saveAndView', vmContext), 'Save and view')
+})
+
+test('the Spotify page adopts its loaded lyrics frame for live settings and synchronization', async () => {
+  const vmContext = context()
+  const requests = []
+  const styles = []
+  const lyric = { style: { fontSize: '' } }
+  const frame = {
+    head: { appendChild: style => { styles.push(style) } },
+    getElementById: id => styles.find(style => style.id === id),
+    createElement: () => ({ id: '', textContent: '' }),
+    querySelector: selector => selector === '[data-lyrics-container="true"]' ? lyric : null,
+    querySelectorAll: () => [lyric]
+  }
+  const iframe = { contentDocument: frame }
+  vmContext.document.getElementById = id => id === 'lyricsiframe' ? iframe : null
+  vmContext.document.querySelector = selector => {
+    if (selector.endsWith('playback-position"]')) return { textContent: '0:12' }
+    if (selector.endsWith('playback-duration"]')) return { textContent: '3:16' }
+    return null
+  }
+  vmContext.URLSearchParams = URLSearchParams
+  vmContext.GM.xmlHttpRequest = async options => {
+    requests.push(options)
+    return { status: 200, response: [] }
+  }
+  vm.runInContext("getSongTitleAndArtist = () => [0, 'Say Yes', ['Loco']]", vmContext)
+  vmContext.lyricsOptions.onLyricsReady()
+  assert.equal(vm.runInContext('syncedLines.document', vmContext), frame)
+  assert.equal(lyric.style.fontSize, '26px')
+  assert.equal(styles.some(style => style.id === 'genius-synced-line-style'), true)
+  vm.runInContext("appearance.textColor = '#ff0000'; applyLyricsAppearance(syncedLines.document)", vmContext)
+  assert.match(styles.find(style => style.id === 'genius-user-appearance').textContent, /#ff0000/)
+  vm.runInContext('updateAutoScroll()', vmContext)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(requests.length, 1)
+  assert.equal(vm.runInContext('syncedLines.trackKey', vmContext), 'Say Yes\tLoco\t196')
+  iframe.contentDocument = { querySelector: () => null }
+  vm.runInContext('updateAutoScroll()', vmContext)
+  assert.equal(vm.runInContext('syncedLines.document', vmContext), null)
 })
