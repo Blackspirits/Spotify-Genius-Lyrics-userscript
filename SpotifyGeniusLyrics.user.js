@@ -11,9 +11,9 @@
 // @namespace       https://greasyfork.org/users/20068
 // @license         GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt
 // @copyright       2020, cuzi (https://github.com/cvzi)
-// @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
+// @supportURL      https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.17
+// @version         23.6.21.18
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/5323e9bf7892a765fb2d51352d61b33e7d7e10b0/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -52,6 +52,8 @@
 'use strict'
 
 const scriptName = 'Spotify Genius Lyrics'
+const scriptVersion = GM.info?.script?.version || '23.6.21.18'
+const isLyricsFrame = window.top !== window && document.location.pathname === '/robots.txt' && document.location.hash?.startsWith('#html:post')
 let genius
 let resizeLeftContainer
 let resizeContainer
@@ -236,7 +238,8 @@ async function openAndAskToSubmitSpotifyLyrics (songTitle, songArtistsArr, force
       // Add this song to the ignored list so we don't ask again
       GM.getValue('submit_spotify_lyrics_ignore', '[]').then(async function (s) {
         const arr = JSON.parse(s)
-        arr.push(key)
+        if (!arr.includes(key)) arr.push(key)
+        arr.splice(0, Math.max(0, arr.length - 500))
         await GM.setValue('submit_spotify_lyrics_ignore', JSON.stringify(arr))
       })
       // Ask user if they want to submit the lyrics
@@ -271,7 +274,8 @@ function improveLyricsPaywall () {
       }
     }
   }
-  const modal = main.querySelector('button span').parentNode.parentNode.parentNode
+  const modal = main?.querySelector('button span')?.parentNode?.parentNode?.parentNode
+  if (!modal) return
   modal.style.width = '50%'
   modal.style.height = '30%'
   modal.style.top = 'auto'
@@ -502,6 +506,7 @@ let lastPlaybackTime = 0
 const syncedLines = {
   document: null,
   trackKey: '',
+  trackDuration: 0,
   requestedKey: '',
   matches: [],
   active: null,
@@ -557,16 +562,22 @@ function matchSyncedLines (lyrics, timed) {
 
 function lyricGroups (iframeDocument) {
   const result = []
-  for (const paragraph of iframeDocument.querySelectorAll('#lyrics-root [data-lyrics-container="true"] > p')) {
+  const filter = iframeDocument.defaultView?.NodeFilter || { SHOW_ELEMENT: 1, SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 }
+  for (const container of iframeDocument.querySelectorAll('[data-lyrics-container="true"]')) {
     let nodes = []
     const append = () => {
-      const text = nodes.map(node => node.textContent).join('').trim()
+      const text = nodes.map(node => node.textContent).join('').replace(/\s+/g, ' ').trim()
       if (text) result.push({ text, nodes })
       nodes = []
     }
-    for (const node of [...paragraph.childNodes]) {
-      if (node.nodeName === 'BR') append()
-      else nodes.push(node)
+    const walker = iframeDocument.createTreeWalker(container, filter.SHOW_ELEMENT | filter.SHOW_TEXT, {
+      acceptNode: node => node.nodeType === 1 && node.hasAttribute('data-exclude-from-selection')
+        ? filter.FILTER_REJECT
+        : filter.FILTER_ACCEPT
+    })
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.nodeType === 3) nodes.push(node)
+      else if (node.nodeName === 'BR' || /^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/.test(node.nodeName)) append()
     }
     append()
   }
@@ -574,7 +585,7 @@ function lyricGroups (iframeDocument) {
 }
 
 function clearSyncedHighlight () {
-  syncedLines.active?.classList.remove('genius-synced-active')
+  syncedLines.active?.elements.forEach(element => element.classList.remove('genius-synced-active'))
   syncedLines.active = null
 }
 
@@ -588,6 +599,7 @@ function resetSyncedLines () {
   clearSyncedHighlight()
   syncedLines.document = null
   syncedLines.trackKey = ''
+  syncedLines.trackDuration = 0
   syncedLines.requestedKey = ''
   syncedLines.matches = []
   updateSyncedLineStatus()
@@ -595,9 +607,9 @@ function resetSyncedLines () {
 }
 
 function getPictureInPictureActiveLine () {
-  const match = syncedLines.matches.find(item => item.element === syncedLines.active)
+  const match = syncedLines.active
   if (!match || !syncedLines.document) return null
-  const text = match.element.textContent.trim()
+  const text = match.text
   const normalized = normalizeLyric(text)
   const occurrence = lyricGroups(syncedLines.document).slice(0, match.index)
     .filter(group => normalizeLyric(group.text) === normalized).length
@@ -625,18 +637,29 @@ function onLyricsReady () {
 function applySyncedLines (record, key, iframeDocument) {
   if (syncedLines.document !== iframeDocument || syncedLines.trackKey !== key) return
   const timed = parseSyncedLyrics(record?.syncedLyrics)
+  if (!timed.length) return
+  clearSyncedHighlight()
+  for (const span of iframeDocument.querySelectorAll('span.genius-synced-line')) span.replaceWith(...span.childNodes)
   const groups = lyricGroups(iframeDocument)
   const matches = matchSyncedLines(groups, timed)
-  if (!matches.length) return
+  if (!matches.length) {
+    console.debug(`[${scriptName}] LRCLIB: ${timed.length} lines, Genius: ${groups.length} lines, no reliable match`)
+    return
+  }
   for (const match of matches) {
     const nodes = groups[match.index].nodes
-    const element = iframeDocument.createElement('span')
-    element.className = 'genius-synced-line'
-    nodes[0].parentNode.insertBefore(element, nodes[0])
-    for (const node of nodes) element.appendChild(node)
-    match.element = element
+    match.text = groups[match.index].text
+    match.elements = []
+    for (const node of nodes) {
+      if (!node.parentNode || !node.textContent) continue
+      const element = iframeDocument.createElement('span')
+      element.className = 'genius-synced-line' + (match.elements.length ? '' : ' genius-synced-line-start')
+      node.parentNode.insertBefore(element, node)
+      element.appendChild(node)
+      match.elements.push(element)
+    }
   }
-  syncedLines.matches = matches
+  syncedLines.matches = matches.filter(match => match.elements.length)
   updateSyncedLineStatus()
   highlightSyncedLine(lastPlaybackTime)
 }
@@ -646,10 +669,15 @@ function requestSyncedLines (duration) {
   const [status, title, artists] = getSongTitleAndArtist()
   if (status < 0 || !artists.length || duration <= 0) return
   const artist = artists[0]
-  const key = `${title}\t${artist}\t${Math.round(duration)}`
+  const prefix = `${title}\t${artist}\t`
+  const key = syncedLines.trackKey.startsWith(prefix) && Math.abs(syncedLines.trackDuration - duration) <= 1.5
+    ? syncedLines.trackKey
+    : `${prefix}${Math.round(duration)}`
   if (syncedLines.trackKey !== key) {
     clearSyncedHighlight()
     syncedLines.trackKey = key
+    syncedLines.trackDuration = duration
+    syncedLines.requestedKey = ''
     syncedLines.matches = []
     updateSyncedLineStatus()
   }
@@ -663,31 +691,35 @@ function requestSyncedLines (duration) {
   syncedLines.pending = true
   syncedLines.requestedKey = key
   syncedLines.nextRequestAt = Date.now() + 500
+  const iframeDocument = syncedLines.document
   const params = new URLSearchParams({ track_name: title, artist_name: artist })
   Promise.resolve(GM.xmlHttpRequest({
     method: 'GET',
     url: `https://lrclib.net/api/search?${params}`,
-    headers: { 'Lrclib-Client': 'Spotify-Genius-Lyrics/23.6.21.9 (https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript)' },
+    headers: { 'Lrclib-Client': `Spotify-Genius-Lyrics/${scriptVersion} (https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript)` },
     responseType: 'json',
     timeout: 8000
   })).then(response => {
     if (response.status === 429) {
       const retry = Number(/\d+/.exec(response.responseHeaders?.match(/retry-after:\s*([^\r\n]+)/i)?.[1] || '')?.[0])
       syncedLines.blockedUntil = Date.now() + Math.min(Math.max(retry || 60, 10), 3600) * 1000
+      if (syncedLines.requestedKey === key) syncedLines.requestedKey = ''
       return
     }
+    if (response.status !== 200) throw new Error(`LRCLIB ${response.status}`)
     const results = response.status === 200
       ? (typeof response.response === 'string' ? JSON.parse(response.response) : response.response)
       : []
     const record = selectSyncedRecord(results, title, artist, duration)
     syncedLines.cache.set(key, record || null)
     if (syncedLines.cache.size > 20) syncedLines.cache.delete(syncedLines.cache.keys().next().value)
-    if (record) applySyncedLines(record, key, syncedLines.document)
+    if (record) applySyncedLines(record, key, iframeDocument)
   }).catch(() => {
-    syncedLines.cache.set(key, null)
+    if (syncedLines.requestedKey === key) syncedLines.requestedKey = ''
+    syncedLines.nextRequestAt = Date.now() + 15000
   }).finally(() => {
     syncedLines.pending = false
-    syncedLines.nextRequestAt = Date.now() + 500
+    syncedLines.nextRequestAt = Math.max(syncedLines.nextRequestAt, Date.now() + 500)
   })
 }
 
@@ -697,16 +729,16 @@ function highlightSyncedLine (current) {
   let active = null
   for (const match of matches) {
     if (match.time > current) break
-    active = match.element
+    active = match
   }
   if (active !== syncedLines.active) {
     clearSyncedHighlight()
     if (active) {
-      active.classList.add('genius-synced-active')
+      active.elements.forEach(element => element.classList.add('genius-synced-active'))
       syncedLines.active = active
       if (genius.f.isScrollLyricsEnabled() && !syncedLines.document.hidden) {
         const scroll = syncedLines.document.scrollingElement
-        const top = active.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.45
+        const top = active.elements[0].getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.45
         scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
       }
     }
@@ -722,7 +754,11 @@ function parsePlaybackTime (text) {
 }
 
 function updateAutoScroll () {
-  if (syncedLines.document && syncedLines.document !== document.getElementById('lyricsiframe')?.contentDocument) resetSyncedLines()
+  if (typeof document.getElementById === 'function') {
+    const iframeDocument = document.getElementById('lyricsiframe')?.contentDocument
+    if (syncedLines.document && syncedLines.document !== iframeDocument) resetSyncedLines()
+    if (!syncedLines.document && window.isPageAbleForAutoScroll === true && iframeDocument?.querySelector('[data-lyrics-container="true"]')) onLyricsReady()
+  }
   const currentElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-position"]')
   const rightElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-duration"]')
   if (!currentElement || !rightElement) return
@@ -2337,7 +2373,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.17 · GeniusLyrics v5.16.21.9'
+    version.textContent = `Spotify Genius Lyrics v${scriptVersion} · GeniusLyrics v5.16.21.9`
   }
   translateOptionsMenu(win)
   updatePreview()
@@ -2869,12 +2905,14 @@ function installSyncedLineStyle (iframeDocument) {
   const style = iframeDocument.createElement('style')
   style.id = 'genius-synced-line-style'
   style.textContent = `
-    #lyrics-root .genius-synced-line {
-      border-left: 3px solid transparent;
-      padding-left: 5px;
+    .genius-synced-line {
       transition: background-color .25s, border-color .25s;
     }
-    #lyrics-root .genius-synced-active {
+    .genius-synced-line-start {
+      border-left: 3px solid transparent;
+      padding-left: 5px;
+    }
+    .genius-synced-active {
       border-left-color: #1ed760;
       background: rgba(30, 215, 96, .15);
       border-radius: 3px;
@@ -2931,7 +2969,7 @@ if (document.location.hostname === 'genius.com') {
   // https://genius.com/songs/new
   fillGeniusForm()
 } else {
-  window.setInterval(function removeAds () {
+  if (!isLyricsFrame) window.setInterval(function removeAds () {
     // Remove "premium" button
     try {
       const button = document.querySelector('button[class^=Button][aria-label*=Premium]')
@@ -2985,7 +3023,7 @@ if (document.location.hostname === 'genius.com') {
         // Remove hints and suggestions
         document.querySelectorAll('.encore-announcement-set button[class*="Button-"]').forEach(b => b.click())
         // Check "show never again"
-        document.querySelectorAll('#dont.show.onboarding.npv').forEach(c => (c.checked = true))
+        document.querySelectorAll('[id="dont.show.onboarding.npv"]').forEach(c => (c.checked = true))
         // Close bubble
         document.querySelectorAll('.tippy-box button[class*="Button-"]').forEach(b => b.click())
       }
@@ -3014,8 +3052,8 @@ if (document.location.hostname === 'genius.com') {
   genius = geniusLyrics({
     GM,
     scriptName,
-    scriptIssuesURL: 'https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues',
-    scriptIssuesTitle: 'Report problem: github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues',
+    scriptIssuesURL: 'https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript/issues',
+    scriptIssuesTitle: 'Report problem: github.com/Blackspirits/Spotify-Genius-Lyrics-userscript/issues',
     domain: 'https://open.spotify.com',
     emptyURL: 'https://open.spotify.com/robots.txt',
     main,
@@ -3057,9 +3095,11 @@ if (document.location.hostname === 'genius.com') {
 
   genius.onThemeChanged.push(styleIframeContent)
 
-  GM.registerMenuCommand(scriptName + ' - Show lyrics', () => addLyrics(true))
-  GM.registerMenuCommand(scriptName + ' - Options', () => genius.f.config())
-  GM.registerMenuCommand(scriptName + ' - Submit lyrics to Genius', () => submitLyricsFromMenu())
-  window.setInterval(updateAutoScroll, 1000)
-  window.setInterval(improveLyricsPaywall, 10000)
+  if (!isLyricsFrame) {
+    GM.registerMenuCommand(scriptName + ' - Show lyrics', () => addLyrics(true))
+    GM.registerMenuCommand(scriptName + ' - Options', () => genius.f.config())
+    GM.registerMenuCommand(scriptName + ' - Submit lyrics to Genius', () => submitLyricsFromMenu())
+    window.setInterval(updateAutoScroll, 1000)
+    window.setInterval(improveLyricsPaywall, 10000)
+  }
 }
