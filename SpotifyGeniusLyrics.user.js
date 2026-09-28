@@ -2969,85 +2969,87 @@ if (document.location.hostname === 'genius.com') {
   // https://genius.com/songs/new
   fillGeniusForm()
 } else {
-  if (!isLyricsFrame) window.setInterval(function removeAds () {
-    // Remove "premium" button
-    try {
-      const button = document.querySelector('button[class^=Button][aria-label*=Premium]')
-      if (button) {
-        button.style.display = 'none'
+  if (!isLyricsFrame) {
+    window.setInterval(function removeAds () {
+      // Remove "premium" button
+      try {
+        const button = document.querySelector('button[class^=Button][aria-label*=Premium]')
+        if (button) {
+          button.style.display = 'none'
+        }
+      } catch (e) {
+        console.warn(e)
       }
-    } catch (e) {
-      console.warn(e)
-    }
-    // Remove "install app" button
-    try {
-      const button = document.querySelector('a[href*="/download"]')
-      if (button) {
-        button.style.display = 'none'
+      // Remove "install app" button
+      try {
+        const button = document.querySelector('a[href*="/download"]')
+        if (button) {
+          button.style.display = 'none'
+        }
+      } catch (e) {
+        console.warn(e)
       }
-    } catch (e) {
-      console.warn(e)
-    }
-    // Remove iframe "GET 3 MONTHS FREE"
-    try {
-      const iframe = document.querySelector('iframe[data-testid="inAppMessageIframe"]')
-      if (iframe && iframe.contentDocument && iframe.contentDocument.body) {
-        iframe.contentDocument.body.querySelectorAll('button').forEach(function (button) {
-          if (button.parentNode.innerHTML.indexOf('Dismiss_action') !== -1) {
-            button.click()
+      // Remove iframe "GET 3 MONTHS FREE"
+      try {
+        const iframe = document.querySelector('iframe[data-testid="inAppMessageIframe"]')
+        if (iframe && iframe.contentDocument && iframe.contentDocument.body) {
+          iframe.contentDocument.body.querySelectorAll('button').forEach(function (button) {
+            if (button.parentNode.innerHTML.indexOf('Dismiss_action') !== -1) {
+              button.click()
+            }
+          })
+        }
+      } catch (e) {
+        console.warn(e)
+      }
+      // Remove another iframe "GET 3 MONTHS FREE"
+      try {
+        const iframe = document.querySelector('.ReactModalPortal iframe[srcdoc*="/purchase/"]')
+        if (iframe && iframe.contentDocument && iframe.contentDocument.body) {
+          const dismissButtons = Array.from(iframe.contentDocument.body.querySelectorAll('button')).filter(b => b.textContent.toLowerCase().includes('dismiss'))
+          if (dismissButtons.length) {
+            dismissButtons[0].click()
           }
-        })
-      }
-    } catch (e) {
-      console.warn(e)
-    }
-    // Remove another iframe "GET 3 MONTHS FREE"
-    try {
-      const iframe = document.querySelector('.ReactModalPortal iframe[srcdoc*="/purchase/"]')
-      if (iframe && iframe.contentDocument && iframe.contentDocument.body) {
-        const dismissButtons = Array.from(iframe.contentDocument.body.querySelectorAll('button')).filter(b => b.textContent.toLowerCase().includes('dismiss'))
-        if (dismissButtons.length) {
-          dismissButtons[0].click()
+          const nonUrlButtons = Array.from(iframe.contentDocument.body.querySelectorAll('button')).filter(b => b.dataset.clickToActionAction !== 'URL')
+          if (nonUrlButtons.length) {
+            nonUrlButtons[0].click()
+          }
         }
-        const nonUrlButtons = Array.from(iframe.contentDocument.body.querySelectorAll('button')).filter(b => b.dataset.clickToActionAction !== 'URL')
-        if (nonUrlButtons.length) {
-          nonUrlButtons[0].click()
+      } catch (e) {
+        console.warn(e)
+      }
+
+      GM.getValue('hide_spotify_suggestions', true).then(function (hideSuggestions) {
+        if (hideSuggestions) {
+          // Remove hints and suggestions
+          document.querySelectorAll('.encore-announcement-set button[class*="Button-"]').forEach(b => b.click())
+          // Check "show never again"
+          document.querySelectorAll('[id="dont.show.onboarding.npv"]').forEach(c => (c.checked = true))
+          // Close bubble
+          document.querySelectorAll('.tippy-box button[class*="Button-"]').forEach(b => b.click())
         }
-      }
-    } catch (e) {
-      console.warn(e)
-    }
+      })
 
-    GM.getValue('hide_spotify_suggestions', true).then(function (hideSuggestions) {
-      if (hideSuggestions) {
-        // Remove hints and suggestions
-        document.querySelectorAll('.encore-announcement-set button[class*="Button-"]').forEach(b => b.click())
-        // Check "show never again"
-        document.querySelectorAll('[id="dont.show.onboarding.npv"]').forEach(c => (c.checked = true))
-        // Close bubble
-        document.querySelectorAll('.tippy-box button[class*="Button-"]').forEach(b => b.click())
-      }
-    })
+      GM.getValue('hide_spotify_now_playing_view', true).then(function (hideNowPlaying) {
+        if (hideNowPlaying) {
+          // Close "Now Playing View"
 
-    GM.getValue('hide_spotify_now_playing_view', true).then(function (hideNowPlaying) {
-      if (hideNowPlaying) {
-        // Close "Now Playing View"
+          // New: 2025-12
+          document.querySelectorAll('.NowPlayingView button[aria-label="Hide Now Playing view"]').forEach(function (b) {
+            b.click()
+          })
+          document.querySelectorAll('.NowPlayingView button[aria-label="Ocultar vista Em reprodução"]').forEach(function (b) {
+            b.click()
+          })
 
-        // New: 2025-12
-        document.querySelectorAll('.NowPlayingView button[aria-label="Hide Now Playing view"]').forEach(function (b) {
-          b.click()
-        })
-        document.querySelectorAll('.NowPlayingView button[aria-label="Ocultar vista Em reprodução"]').forEach(function (b) {
-          b.click()
-        })
-
-        // Old: 2025-04
-        document.querySelectorAll('[data-testid="control-button-npv"][data-active="true"]').forEach(function (b) {
-          b.click()
-        })
-      }
-    })
-  }, 3000)
+          // Old: 2025-04
+          document.querySelectorAll('[data-testid="control-button-npv"][data-active="true"]').forEach(function (b) {
+            b.click()
+          })
+        }
+      })
+    }, 3000)
+  }
 
   genius = geniusLyrics({
     GM,
