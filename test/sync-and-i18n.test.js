@@ -149,5 +149,5 @@ test('updates the lyric font size immediately while the options are open', () =>
   assert.equal(lyric.style.fontSize, '')
   vm.runInContext('applyLiveFontSize(frame, 500)', vmContext)
   assert.equal(lyric.style.fontSize, '99px')
-  assert.equal(vm.runInContext("uiText().saveAndView", vmContext), 'Save and view')
+  assert.equal(vm.runInContext('uiText().saveAndView', vmContext), 'Save and view')
 })
