@@ -216,4 +216,26 @@ test('passes the saved lyric appearance to Picture-in-Picture and refreshes an o
   })
   vm.runInContext('refreshPictureInPictureAppearance()', vmContext)
   assert.equal(refreshes, 1)
+  vm.runInContext("uiLanguagePreference = 'pt-PT'", vmContext)
+  assert.deepEqual(JSON.parse(JSON.stringify(vmContext.lyricsOptions.getPictureInPictureLabels())), {
+    resume: 'Retomar', fromHere: 'A partir daqui'
+  })
+})
+
+test('identifies the second occurrence of a repeated chorus in Picture-in-Picture', () => {
+  const vmContext = context()
+  vm.runInContext(`
+    syncedLines.document = {}
+    syncedLines.active = { textContent: 'Say yes, say yes' }
+    syncedLines.matches = [{ index: 3, element: syncedLines.active }]
+    lyricGroups = () => [
+      { text: 'Say yes, say yes' }, { text: 'Other line' },
+      { text: 'Another line' }, { text: 'Say yes, say yes' }
+    ]
+  `, vmContext)
+  assert.deepEqual(JSON.parse(JSON.stringify(vmContext.lyricsOptions.getPictureInPictureActiveLine())), {
+    text: 'Say yes, say yes', occurrence: 1
+  })
+  vm.runInContext('syncedLines.active = null', vmContext)
+  assert.equal(vmContext.lyricsOptions.getPictureInPictureActiveLine(), null)
 })
