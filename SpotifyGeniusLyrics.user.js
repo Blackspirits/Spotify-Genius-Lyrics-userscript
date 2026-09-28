@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.18
+// @version         23.6.21.19
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/5323e9bf7892a765fb2d51352d61b33e7d7e10b0/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -52,7 +52,7 @@
 'use strict'
 
 const scriptName = 'Spotify Genius Lyrics'
-const scriptVersion = GM.info?.script?.version || '23.6.21.18'
+const scriptVersion = GM.info?.script?.version || '23.6.21.19'
 const isLyricsFrame = window.top !== window && document.location.pathname === '/robots.txt' && document.location.hash?.startsWith('#html:post')
 let genius
 let resizeLeftContainer
@@ -513,30 +513,69 @@ const syncedLines = {
   pending: false,
   cache: new Map(),
   blockedUntil: 0,
-  nextRequestAt: 0
+  nextRequestAt: 0,
+  userScrollUntil: 0
 }
+const playbackClock = { shown: -1, changedAt: 0, advancing: false }
+const SYNC_LEAD = 0.2
 
 function normalizeLyric (text) {
   return String(text || '').normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '')
 }
 
+function normalizeTrackTitle (text) {
+  return normalizeLyric(String(text || '').replace(/\s*[-–—]\s*(?:\d{4}\s*)?remaster(?:ed)?(?:\s*\d{4})?\s*$/i, ''))
+}
+
+function lyricSimilarity (a, b) {
+  if (a === b) return 1
+  const left = [...a]
+  const right = [...b]
+  if (Math.min(left.length, right.length) < 5) return 0
+  const grams = new Map()
+  for (let i = 0; i < left.length - 1; i++) {
+    const gram = left[i] + left[i + 1]
+    grams.set(gram, (grams.get(gram) || 0) + 1)
+  }
+  let hits = 0
+  for (let i = 0; i < right.length - 1; i++) {
+    const gram = right[i] + right[i + 1]
+    const count = grams.get(gram) || 0
+    if (count) {
+      hits++
+      grams.set(gram, count - 1)
+    }
+  }
+  return 2 * hits / (left.length + right.length - 2)
+}
+
 function parseSyncedLyrics (lrc) {
   if (typeof lrc !== 'string' || lrc.length > 250000) return []
   const lines = []
+  const stamp = /^\[(\d{1,3}):([0-5]\d)(?:[.:](\d{1,3}))?\]\s*/
   for (const row of lrc.split(/\r?\n/)) {
-    const match = row.match(/^\[(\d{1,3}):([0-5]\d)(?:\.(\d{1,3}))?\]\s*(.*)$/)
-    if (!match || !match[4].trim()) continue
-    const time = Number(match[1]) * 60 + Number(match[2]) + Number(`0.${(match[3] || '0').padEnd(2, '0')}`)
-    if (time >= 0 && lines.length < 500) lines.push({ time, text: match[4].trim() })
+    let rest = row.trim()
+    const times = []
+    let match
+    while ((match = stamp.exec(rest))) {
+      const fraction = match[3] ? Number(match[3]) / 10 ** match[3].length : 0
+      times.push(Number(match[1]) * 60 + Number(match[2]) + fraction)
+      rest = rest.slice(match[0].length)
+    }
+    const text = rest.replace(/<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>/g, '').trim()
+    if (!text) continue
+    for (const time of times) {
+      if (lines.length < 800) lines.push({ time, text })
+    }
   }
   return lines.sort((a, b) => a.time - b.time)
 }
 
 function selectSyncedRecord (results, title, artist, duration) {
   if (!Array.isArray(results) || normalizeLyric(artist).length < 2) return null
-  return results.find(item =>
+  return results.find(item => item &&
     !item.instrumental &&
-    normalizeLyric(item.trackName) === normalizeLyric(title) &&
+    normalizeTrackTitle(item.trackName) === normalizeTrackTitle(title) &&
     normalizeLyric(item.artistName).includes(normalizeLyric(artist)) &&
     Math.abs(Number(item.duration) - duration) <= 2 &&
     typeof item.syncedLyrics === 'string'
@@ -544,17 +583,34 @@ function selectSyncedRecord (results, title, artist, duration) {
 }
 
 function matchSyncedLines (lyrics, timed) {
-  const visible = lyrics.map((line, index) => ({ index, normalized: normalizeLyric(line.text) }))
+  const normalizedLine = text => ({
+    normalized: normalizeLyric(text),
+    withoutAdlibs: normalizeLyric(text.replace(/\([^)]*\)/g, ''))
+  })
+  const visible = lyrics.map((line, index) => ({ index, ...normalizedLine(line.text) }))
     .filter(line => line.normalized.length >= 3 && !/^\[[^\]]+\]$/.test(lyrics[line.index].text.trim()))
-  const sung = timed.map(line => ({ ...line, normalized: normalizeLyric(line.text) }))
+  const sung = timed.map(line => ({ ...line, ...normalizedLine(line.text) }))
     .filter(line => line.normalized.length >= 3)
   let cursor = 0
   const matches = []
   for (const line of sung) {
-    const next = visible.findIndex((item, index) => index >= cursor && item.normalized === line.normalized)
-    if (next < 0) continue
-    matches.push({ index: visible[next].index, time: line.time })
-    cursor = next + 1
+    let best = -1
+    let score = 0.82
+    for (let i = cursor; i < Math.min(visible.length, cursor + 12); i++) {
+      const item = visible[i]
+      const similarity = Math.max(
+        lyricSimilarity(item.normalized, line.normalized),
+        lyricSimilarity(item.withoutAdlibs, line.withoutAdlibs)
+      )
+      if (similarity > score) {
+        best = i
+        score = similarity
+        if (score === 1) break
+      }
+    }
+    if (best < 0) continue
+    matches.push({ index: visible[best].index, time: line.time })
+    cursor = best + 1
   }
   if (matches.length < 4 || matches.length / sung.length < 0.65 || matches.length / visible.length < 0.55) return []
   return matches
@@ -602,6 +658,9 @@ function resetSyncedLines () {
   syncedLines.trackDuration = 0
   syncedLines.requestedKey = ''
   syncedLines.matches = []
+  syncedLines.userScrollUntil = 0
+  playbackClock.shown = -1
+  playbackClock.advancing = false
   updateSyncedLineStatus()
   refreshPictureInPictureAppearance()
 }
@@ -632,6 +691,12 @@ function onLyricsReady () {
   applyLiveFontSize(iframeDocument, genius.option.fontSize)
   installSyncedLineStyle(iframeDocument)
   refreshPictureInPictureAppearance()
+  if (iframeDocument.documentElement?.dataset && typeof iframeDocument.addEventListener === 'function' && !iframeDocument.documentElement.dataset.geniusSyncedScroll) {
+    iframeDocument.documentElement.dataset.geniusSyncedScroll = '1'
+    const pause = () => { syncedLines.userScrollUntil = Date.now() + 4000 }
+    iframeDocument.addEventListener('wheel', pause, { passive: true })
+    iframeDocument.addEventListener('touchmove', pause, { passive: true })
+  }
 }
 
 function applySyncedLines (record, key, iframeDocument) {
@@ -651,7 +716,7 @@ function applySyncedLines (record, key, iframeDocument) {
     match.text = groups[match.index].text
     match.elements = []
     for (const node of nodes) {
-      if (!node.parentNode || !node.textContent) continue
+      if (!node.parentNode || !node.textContent.trim()) continue
       const element = iframeDocument.createElement('span')
       element.className = 'genius-synced-line' + (match.elements.length ? '' : ' genius-synced-line-start')
       node.parentNode.insertBefore(element, node)
@@ -661,7 +726,19 @@ function applySyncedLines (record, key, iframeDocument) {
   }
   syncedLines.matches = matches.filter(match => match.elements.length)
   updateSyncedLineStatus()
-  highlightSyncedLine(lastPlaybackTime)
+  highlightSyncedLine(estimatedPlaybackTime())
+}
+
+function estimatedPlaybackTime () {
+  if (!playbackClock.advancing || (typeof navigator !== 'undefined' && navigator.mediaSession?.playbackState === 'paused')) return lastPlaybackTime
+  return playbackClock.shown + Math.min((Date.now() - playbackClock.changedAt) / 1000, 0.75)
+}
+
+function notePlaybackTime (current) {
+  if (current === playbackClock.shown) return
+  playbackClock.advancing = playbackClock.shown >= 0 && current > playbackClock.shown && current - playbackClock.shown <= 2
+  playbackClock.shown = current
+  playbackClock.changedAt = Date.now()
 }
 
 function requestSyncedLines (duration) {
@@ -699,7 +776,7 @@ function requestSyncedLines (duration) {
     headers: { 'Lrclib-Client': `Spotify-Genius-Lyrics/${scriptVersion} (https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript)` },
     responseType: 'json',
     timeout: 8000
-  })).then(response => {
+  })).then(async response => {
     if (response.status === 429) {
       const retry = Number(/\d+/.exec(response.responseHeaders?.match(/retry-after:\s*([^\r\n]+)/i)?.[1] || '')?.[0])
       syncedLines.blockedUntil = Date.now() + Math.min(Math.max(retry || 60, 10), 3600) * 1000
@@ -707,10 +784,26 @@ function requestSyncedLines (duration) {
       return
     }
     if (response.status !== 200) throw new Error(`LRCLIB ${response.status}`)
-    const results = response.status === 200
-      ? (typeof response.response === 'string' ? JSON.parse(response.response) : response.response)
-      : []
-    const record = selectSyncedRecord(results, title, artist, duration)
+    const results = typeof response.response === 'string' ? JSON.parse(response.response) : response.response
+    let record = selectSyncedRecord(results, title, artist, duration)
+    if (!record) {
+      const loose = await GM.xmlHttpRequest({
+        method: 'GET',
+        url: `https://lrclib.net/api/search?${new URLSearchParams({ q: `${title} ${artist}` })}`,
+        headers: { 'Lrclib-Client': `Spotify-Genius-Lyrics/${scriptVersion} (https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript)` },
+        responseType: 'json',
+        timeout: 8000
+      })
+      if (loose.status === 429) {
+        const retry = Number(/\d+/.exec(loose.responseHeaders?.match(/retry-after:\s*([^\r\n]+)/i)?.[1] || '')?.[0])
+        syncedLines.blockedUntil = Date.now() + Math.min(Math.max(retry || 60, 10), 3600) * 1000
+        if (syncedLines.requestedKey === key) syncedLines.requestedKey = ''
+        return
+      }
+      if (loose.status !== 200) throw new Error(`LRCLIB ${loose.status}`)
+      const candidates = typeof loose.response === 'string' ? JSON.parse(loose.response) : loose.response
+      record = selectSyncedRecord(candidates, title, artist, duration)
+    }
     syncedLines.cache.set(key, record || null)
     if (syncedLines.cache.size > 20) syncedLines.cache.delete(syncedLines.cache.keys().next().value)
     if (record) applySyncedLines(record, key, iframeDocument)
@@ -723,12 +816,20 @@ function requestSyncedLines (duration) {
   })
 }
 
+function centerSyncedLine (active) {
+  if (!genius.f.isScrollLyricsEnabled() || syncedLines.document.hidden || Date.now() < syncedLines.userScrollUntil) return
+  syncedLines.userScrollUntil = 0
+  const scroll = syncedLines.document.scrollingElement
+  const top = active.elements[0].getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.45
+  scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
 function highlightSyncedLine (current) {
   const matches = syncedLines.matches
   if (!syncedLineHighlightEnabled || !matches.length) return false
   let active = null
   for (const match of matches) {
-    if (match.time > current) break
+    if (match.time > current + SYNC_LEAD) break
     active = match
   }
   if (active !== syncedLines.active) {
@@ -736,13 +837,11 @@ function highlightSyncedLine (current) {
     if (active) {
       active.elements.forEach(element => element.classList.add('genius-synced-active'))
       syncedLines.active = active
-      if (genius.f.isScrollLyricsEnabled() && !syncedLines.document.hidden) {
-        const scroll = syncedLines.document.scrollingElement
-        const top = active.elements[0].getBoundingClientRect().top + scroll.scrollTop - scroll.clientHeight * 0.45
-        scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
-      }
+      centerSyncedLine(active)
     }
     refreshPictureInPictureAppearance()
+  } else if (active && syncedLines.userScrollUntil && Date.now() >= syncedLines.userScrollUntil) {
+    centerSyncedLine(active)
   }
   return true
 }
@@ -773,8 +872,9 @@ function updateAutoScroll () {
   const pos = duration > 0 ? current / duration : null
   if (pos != null && pos >= 0 && pos <= 1) {
     lastPlaybackTime = current
+    notePlaybackTime(current)
     requestSyncedLines(duration)
-    const hasSyncedLine = highlightSyncedLine(current)
+    const hasSyncedLine = highlightSyncedLine(estimatedPlaybackTime())
     if (!hasSyncedLine && lastPos !== pos) genius.f.scrollLyrics(pos)
     lastPos = pos
   }
@@ -2291,8 +2391,8 @@ function styleOptionsMenu (win) {
     const green = parseInt(accent.slice(3, 5), 16)
     const blue = parseInt(accent.slice(5, 7), 16)
     const size = Math.min(99, Math.max(0, parseInt(fontSizeInput?.value) || 0))
-    const lines = (syncedLines.document?.querySelector('[data-lyrics-container="true"] p')?.innerText || '')
-      .split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('[')).slice(0, 2)
+    const lines = (syncedLines.document ? lyricGroups(syncedLines.document) : [])
+      .map(line => line.text).filter(text => !text.startsWith('[')).slice(0, 2)
     previewCaption.textContent = t.lyricsGroup + ' · ' + t.appearance
     previewFirst.textContent = lines[0] || t.lyricsGroup + ' ♪'
     previewActive.textContent = lines[1] || t.appearance + ' ♪'
@@ -2341,7 +2441,7 @@ function styleOptionsMenu (win) {
   const appearanceSection = document.createElement('div')
   appearanceSection.className = 'genius-appearance-row'
   appearanceSection.appendChild(appearanceOptions)
-  appearanceOptions.insertBefore(fontSize, appearanceOptions.children[2])
+  if (fontSize) appearanceOptions.insertBefore(fontSize, appearanceOptions.children[2])
   createSection('Lyrics', [autoShow, theme, appearanceSection, annotations, autoScroll, synced], 'genius-options-lyrics')
   createSection('Spotify', [spotifyLyrics, submitLyrics, hideSuggestions, hideNowPlaying], 'genius-options-spotify')
   const advanced = win.insertBefore(document.createElement('details'), actions)
@@ -3102,6 +3202,9 @@ if (document.location.hostname === 'genius.com') {
     GM.registerMenuCommand(scriptName + ' - Options', () => genius.f.config())
     GM.registerMenuCommand(scriptName + ' - Submit lyrics to Genius', () => submitLyricsFromMenu())
     window.setInterval(updateAutoScroll, 1000)
+    window.setInterval(() => {
+      if (syncedLines.document && syncedLines.matches.length) highlightSyncedLine(estimatedPlaybackTime())
+    }, 250)
     window.setInterval(improveLyricsPaywall, 10000)
   }
 }
