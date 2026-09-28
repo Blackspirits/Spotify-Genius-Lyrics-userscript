@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.11
+// @version         23.6.21.12
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -58,6 +58,16 @@ let resizeContainer
 let optionCurrentSize = 30.0
 let uiLanguagePreference = 'auto'
 let syncedLineHighlightEnabled = true
+const LYRICS_FONTS = {
+  default: '',
+  system: 'system-ui, sans-serif',
+  sans: 'Arial, sans-serif',
+  serif: 'Georgia, serif',
+  mono: 'ui-monospace, monospace'
+}
+const APPEARANCE_KEYS = ['textColor', 'backgroundColor', 'highlightColor']
+const appearance = { fontFamily: 'default', textColor: '', backgroundColor: '', highlightColor: '' }
+const validColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : ''
 GM.getValue('optioncurrentsize', optionCurrentSize).then(function (value) {
   optionCurrentSize = value
 })
@@ -69,6 +79,14 @@ GM.getValue('ui_language', 'auto').then(function (value) {
 })
 GM.getValue('synced_line_highlight', true).then(value => {
   syncedLineHighlightEnabled = value !== false
+})
+Promise.all([
+  GM.getValue('lyrics_font_family', 'default'),
+  ...APPEARANCE_KEYS.map(key => GM.getValue('lyrics_' + key, ''))
+]).then(([font, ...colors]) => {
+  appearance.fontFamily = Object.hasOwn(LYRICS_FONTS, font) ? font : 'default'
+  APPEARANCE_KEYS.forEach((key, index) => { appearance[key] = validColor(colors[index]) })
+  applyLyricsAppearance(syncedLines.document)
 })
 
 function setFrameDimensions (container, iframe, bar) {
@@ -823,6 +841,10 @@ const UI_TEXT = {
     menuTitle: 'Options',
     support: 'Report a problem',
     lyricsGroup: 'Lyrics',
+    appearance: 'Appearance',
+    fontFamily: 'Font', fontDefault: 'Theme default', fontSystem: 'System',
+    textColor: 'Text color', backgroundColor: 'Background color',
+    highlightColor: 'Current line color', resetColor: 'Default',
     moreCredits: 'more',
     advanced: 'Advanced',
     hide: 'Hide',
@@ -881,6 +903,10 @@ const UI_TEXT = {
     menuTitle: 'Opções das letras',
     support: 'Reportar um problema',
     lyricsGroup: 'Letras',
+    appearance: 'Aspeto',
+    fontFamily: 'Tipo de letra', fontDefault: 'Predefinição do tema', fontSystem: 'Sistema',
+    textColor: 'Cor do texto', backgroundColor: 'Cor do fundo',
+    highlightColor: 'Cor da linha atual', resetColor: 'Predefinição',
     moreCredits: 'mais',
     advanced: 'Avançado',
     hide: 'Ocultar',
@@ -939,6 +965,10 @@ const UI_TEXT = {
     menuTitle: 'Opções das letras',
     support: 'Informar um problema',
     lyricsGroup: 'Letras',
+    appearance: 'Aparência',
+    fontFamily: 'Fonte', fontDefault: 'Padrão do tema', fontSystem: 'Sistema',
+    textColor: 'Cor do texto', backgroundColor: 'Cor do fundo',
+    highlightColor: 'Cor da linha atual', resetColor: 'Padrão',
     moreCredits: 'mais',
     advanced: 'Avançado',
     hide: 'Ocultar',
@@ -997,6 +1027,10 @@ const UI_TEXT = {
     menuTitle: 'Opciones de letras',
     support: 'Informar de un problema',
     lyricsGroup: 'Letras',
+    appearance: 'Apariencia',
+    fontFamily: 'Fuente', fontDefault: 'Predeterminado del tema', fontSystem: 'Sistema',
+    textColor: 'Color del texto', backgroundColor: 'Color de fondo',
+    highlightColor: 'Color de la línea actual', resetColor: 'Predeterminado',
     moreCredits: 'más',
     advanced: 'Avanzado',
     hide: 'Ocultar',
@@ -1055,6 +1089,10 @@ const UI_TEXT = {
     menuTitle: 'Options des paroles',
     support: 'Signaler un problème',
     lyricsGroup: 'Paroles',
+    appearance: 'Apparence',
+    fontFamily: 'Police', fontDefault: 'Par défaut du thème', fontSystem: 'Système',
+    textColor: 'Couleur du texte', backgroundColor: 'Couleur de fond',
+    highlightColor: 'Couleur de la ligne actuelle', resetColor: 'Par défaut',
     moreCredits: 'de plus',
     advanced: 'Avancé',
     hide: 'Masquer',
@@ -1113,6 +1151,10 @@ const UI_TEXT = {
     menuTitle: 'Liedtext-Optionen',
     support: 'Problem melden',
     lyricsGroup: 'Liedtext',
+    appearance: 'Darstellung',
+    fontFamily: 'Schriftart', fontDefault: 'Designstandard', fontSystem: 'System',
+    textColor: 'Textfarbe', backgroundColor: 'Hintergrundfarbe',
+    highlightColor: 'Farbe der aktuellen Zeile', resetColor: 'Standard',
     moreCredits: 'mehr',
     advanced: 'Erweitert',
     hide: 'Ausblenden',
@@ -1171,6 +1213,10 @@ const UI_TEXT = {
     menuTitle: 'Opzioni dei testi',
     support: 'Segnala un problema',
     lyricsGroup: 'Testi',
+    appearance: 'Aspetto',
+    fontFamily: 'Carattere', fontDefault: 'Predefinito del tema', fontSystem: 'Sistema',
+    textColor: 'Colore del testo', backgroundColor: 'Colore dello sfondo',
+    highlightColor: 'Colore della riga attuale', resetColor: 'Predefinito',
     moreCredits: 'in più',
     advanced: 'Avanzate',
     hide: 'Nascondi',
@@ -1225,18 +1271,242 @@ const UI_TEXT = {
   }
 }
 
+Object.assign(UI_TEXT, {
+  'zh-CN': {
+    language: '语言', autoChoice: '自动', menuTitle: '歌词设置', support: '报告问题', lyricsGroup: '歌词',
+    appearance: '外观', fontFamily: '字体', fontDefault: '主题默认', fontSystem: '系统字体',
+    textColor: '文字颜色', backgroundColor: '背景颜色', highlightColor: '当前歌词颜色', resetColor: '恢复默认',
+    moreCredits: '位其他人员', advanced: '高级设置', hide: '隐藏', options: '设置', wrongLyrics: '歌词有误',
+    back: '返回搜索', search: '搜索 Genius', searchHint: '搜索歌曲或歌手', searchButton: '搜索',
+    searching: '正在搜索…', searchError: '搜索失败，请重试。', noResults: '没有找到结果', results: '条结果',
+    view: '次浏览', complete: '完整', incomplete: '不完整', instrumental: '纯音乐',
+    autoShow: ' 切换歌曲时自动显示歌词', autoShowHint: '（关闭后可使用右上角的小按钮）',
+    pip: '画中画：', pipHint: '如果浏览器支持，在浮动窗口中显示歌词。',
+    pipDisabled: '关闭', pipHidden: '标签页隐藏时', pipAlways: '始终', firefoxSize: 'Firefox 画中画尺寸：',
+    firefoxFont: 'Firefox 画中画字号：', firefoxHint: '这些设置会自动保存。',
+    theme: '主题：', font: '字号：', annotations: ' 显示注释', scroll: ' 自动滚动',
+    synced: ' 有同步歌词时高亮当前行', spotifyLyrics: ' Genius 没有歌词时显示 Spotify 歌词',
+    submit: ' 建议将 Spotify 歌词提交到 Genius', suggestions: ' 隐藏 Spotify 推荐内容',
+    nowPlaying: ' 隐藏 Spotify 正在播放视图', romaji: '罗马字：', low: '低优先级', high: '高优先级',
+    compression: '压缩：', enabled: '开启', disabled: '关闭', close: '关闭', clearCache: '清除缓存',
+    cleared: '已清除', debugOn: '调试已开启', debugOff: '调试已关闭', powered: '基于 ',
+    contributors: ' 和贡献者。', modifications: '修复与改进（2026）：', license: '基于 GNU 通用公共许可证 v3.0 授权'
+  },
+  hi: {
+    language: 'भाषा', autoChoice: 'स्वचालित', menuTitle: 'गीत के बोल: विकल्प', support: 'समस्या की रिपोर्ट करें',
+    lyricsGroup: 'गीत के बोल', appearance: 'दिखावट', fontFamily: 'फ़ॉन्ट', fontDefault: 'थीम का डिफ़ॉल्ट',
+    fontSystem: 'सिस्टम', textColor: 'पाठ का रंग', backgroundColor: 'पृष्ठभूमि का रंग',
+    highlightColor: 'वर्तमान पंक्ति का रंग', resetColor: 'डिफ़ॉल्ट', moreCredits: 'और',
+    advanced: 'उन्नत', hide: 'छिपाएँ', options: 'विकल्प', wrongLyrics: 'गलत बोल', back: 'खोज पर लौटें',
+    search: 'Genius पर खोजें', searchHint: 'गीत या कलाकार खोजें', searchButton: 'खोजें',
+    searching: 'खोज जारी है…', searchError: 'खोज विफल रही। फिर कोशिश करें।', noResults: 'कोई परिणाम नहीं मिला',
+    results: 'परिणाम', view: 'दृश्य', complete: 'पूर्ण', incomplete: 'अपूर्ण', instrumental: 'वाद्य संगीत',
+    autoShow: ' नया गीत शुरू होने पर बोल अपने आप दिखाएँ', autoShowHint: '(बंद होने पर ऊपर दाएँ छोटा बटन दबाएँ)',
+    pip: 'पिक्चर-इन-पिक्चर: ', pipHint: 'ब्राउज़र समर्थित हो तो बोल एक अलग फ़्लोटिंग विंडो में दिखाएँ।',
+    pipDisabled: 'बंद', pipHidden: 'टैब छिपा होने पर', pipAlways: 'हमेशा',
+    firefoxSize: 'Firefox PiP आकार: ', firefoxFont: 'Firefox PiP फ़ॉन्ट आकार: ',
+    firefoxHint: 'ये मान अपने आप सहेजे जाते हैं।', theme: 'थीम: ', font: 'फ़ॉन्ट आकार: ',
+    annotations: ' टिप्पणियाँ दिखाएँ', scroll: ' अपने आप स्क्रॉल करें',
+    synced: ' सिंक किए गए बोल उपलब्ध हों तो वर्तमान पंक्ति हाइलाइट करें',
+    spotifyLyrics: ' Genius पर बोल न मिलने पर Spotify के बोल दिखाएँ',
+    submit: ' Spotify के बोल Genius पर भेजने का सुझाव दें', suggestions: ' Spotify के सुझाव छिपाएँ',
+    nowPlaying: ' Spotify का अभी चल रहा है दृश्य छिपाएँ', romaji: 'रोमाजी: ',
+    low: 'कम प्राथमिकता', high: 'उच्च प्राथमिकता', compression: 'संपीड़न: ',
+    enabled: 'चालू', disabled: 'बंद', close: 'बंद करें', clearCache: 'कैश साफ़ करें',
+    cleared: 'साफ़ किया गया', debugOn: 'डिबग चालू है', debugOff: 'डिबग बंद है', powered: 'द्वारा संचालित ',
+    contributors: ' और योगदानकर्ता।', modifications: 'सुधार और बदलाव (2026): ',
+    license: 'GNU जनरल पब्लिक लाइसेंस v3.0 के अंतर्गत लाइसेंस प्राप्त'
+  },
+  ar: {
+    language: 'اللغة', autoChoice: 'تلقائي', menuTitle: 'خيارات كلمات الأغاني', support: 'الإبلاغ عن مشكلة',
+    lyricsGroup: 'كلمات الأغاني', appearance: 'المظهر', fontFamily: 'الخط', fontDefault: 'الافتراضي للسمة',
+    fontSystem: 'خط النظام', textColor: 'لون النص', backgroundColor: 'لون الخلفية',
+    highlightColor: 'لون السطر الحالي', resetColor: 'الافتراضي', moreCredits: 'آخرين',
+    advanced: 'متقدم', hide: 'إخفاء', options: 'الخيارات', wrongLyrics: 'كلمات غير صحيحة',
+    back: 'العودة إلى البحث', search: 'البحث في Genius', searchHint: 'ابحث عن أغنية أو فنان',
+    searchButton: 'بحث', searching: 'جارٍ البحث…', searchError: 'فشل البحث. حاول مجددًا.',
+    noResults: 'لا توجد نتائج', results: 'نتائج', view: 'مشاهدة', complete: 'مكتملة',
+    incomplete: 'غير مكتملة', instrumental: 'موسيقى فقط',
+    autoShow: ' إظهار الكلمات تلقائيًا عند بدء أغنية جديدة',
+    autoShowHint: '(إذا عُطّل، استخدم الزر الصغير أعلى اليمين)',
+    pip: 'صورة داخل صورة: ', pipHint: 'عرض الكلمات في نافذة عائمة إذا كان المتصفح يدعم ذلك.',
+    pipDisabled: 'معطّل', pipHidden: 'عند إخفاء علامة التبويب', pipAlways: 'دائمًا',
+    firefoxSize: 'حجم نافذة Firefox العائمة: ', firefoxFont: 'حجم الخط في نافذة Firefox: ',
+    firefoxHint: 'تُحفظ هذه القيم تلقائيًا.', theme: 'السمة: ', font: 'حجم الخط: ',
+    annotations: ' إظهار التعليقات التوضيحية', scroll: ' تمرير تلقائي',
+    synced: ' تمييز السطر الحالي عند توفّر كلمات متزامنة',
+    spotifyLyrics: ' إظهار كلمات Spotify إذا لم تتوفر على Genius',
+    submit: ' اقتراح إضافة كلمات Spotify إلى Genius', suggestions: ' إخفاء اقتراحات Spotify',
+    nowPlaying: ' إخفاء عرض التشغيل الحالي في Spotify', romaji: 'الرومنة: ',
+    low: 'أولوية منخفضة', high: 'أولوية مرتفعة', compression: 'الضغط: ',
+    enabled: 'مفعّل', disabled: 'معطّل', close: 'إغلاق', clearCache: 'مسح ذاكرة التخزين المؤقت',
+    cleared: 'تم المسح', debugOn: 'التصحيح مفعّل', debugOff: 'التصحيح معطّل', powered: 'بدعم من ',
+    contributors: ' والمساهمين.', modifications: 'إصلاحات وتحسينات (2026): ',
+    license: 'مرخّص بموجب رخصة جنو العمومية الإصدار 3.0'
+  },
+  ru: {
+    language: 'Язык', autoChoice: 'Автоматически', menuTitle: 'Настройки текста песни',
+    support: 'Сообщить о проблеме', lyricsGroup: 'Текст песни', appearance: 'Оформление',
+    fontFamily: 'Шрифт', fontDefault: 'По умолчанию для темы', fontSystem: 'Системный',
+    textColor: 'Цвет текста', backgroundColor: 'Цвет фона', highlightColor: 'Цвет текущей строки',
+    resetColor: 'По умолчанию', moreCredits: 'ещё', advanced: 'Дополнительно', hide: 'Скрыть',
+    options: 'Настройки', wrongLyrics: 'Неверный текст', back: 'Вернуться к поиску',
+    search: 'Поиск в Genius', searchHint: 'Найти песню или исполнителя', searchButton: 'Найти',
+    searching: 'Поиск…', searchError: 'Ошибка поиска. Повторите попытку.',
+    noResults: 'Ничего не найдено', results: 'результатов', view: 'просмотров',
+    complete: 'Полный', incomplete: 'Неполный', instrumental: 'Инструментальная музыка',
+    autoShow: ' Показывать текст при смене песни',
+    autoShowHint: '(если выключено, нажмите маленькую кнопку в правом верхнем углу)',
+    pip: 'Картинка в картинке: ', pipHint: 'Показывать текст в отдельном окне, если браузер поддерживает.',
+    pipDisabled: 'Выключено', pipHidden: 'Когда вкладка скрыта', pipAlways: 'Всегда',
+    firefoxSize: 'Размер окна Firefox PiP: ', firefoxFont: 'Размер шрифта Firefox PiP: ',
+    firefoxHint: 'Значения сохраняются автоматически.', theme: 'Тема: ', font: 'Размер шрифта: ',
+    annotations: ' Показывать аннотации', scroll: ' Автоматическая прокрутка',
+    synced: ' Подсвечивать текущую строку при наличии синхронизации',
+    spotifyLyrics: ' Показывать текст из Spotify, если его нет в Genius',
+    submit: ' Предлагать отправить текст Spotify в Genius', suggestions: ' Скрыть предложения Spotify',
+    nowPlaying: ' Скрыть панель «Сейчас играет» Spotify', romaji: 'Ромадзи: ',
+    low: 'Низкий приоритет', high: 'Высокий приоритет', compression: 'Сжатие: ',
+    enabled: 'Включено', disabled: 'Выключено', close: 'Закрыть', clearCache: 'Очистить кеш',
+    cleared: 'Очищено', debugOn: 'Отладка включена', debugOff: 'Отладка выключена',
+    powered: 'На основе ', contributors: ' и участников.', modifications: 'Исправления и улучшения (2026): ',
+    license: 'Лицензия GNU General Public License v3.0'
+  },
+  ja: {
+    language: '言語', autoChoice: '自動', menuTitle: '歌詞の設定', support: '問題を報告',
+    lyricsGroup: '歌詞', appearance: '外観', fontFamily: 'フォント', fontDefault: 'テーマの既定値',
+    fontSystem: 'システム', textColor: '文字色', backgroundColor: '背景色',
+    highlightColor: '現在の行の色', resetColor: '既定値', moreCredits: '人ほか', advanced: '詳細設定',
+    hide: '隠す', options: '設定', wrongLyrics: '歌詞が違う', back: '検索に戻る',
+    search: 'Genius で検索', searchHint: '曲名またはアーティストを検索', searchButton: '検索',
+    searching: '検索中…', searchError: '検索に失敗しました。もう一度お試しください。',
+    noResults: '結果が見つかりません', results: '件', view: '回閲覧', complete: '完了',
+    incomplete: '未完了', instrumental: 'インストゥルメンタル',
+    autoShow: ' 曲が変わったら歌詞を自動表示', autoShowHint: '（オフの場合は右上の小さなボタンから表示）',
+    pip: 'ピクチャーインピクチャー：', pipHint: 'ブラウザーが対応していれば歌詞を別ウィンドウに表示します。',
+    pipDisabled: '無効', pipHidden: 'タブが非表示のとき', pipAlways: '常に',
+    firefoxSize: 'Firefox PiP のサイズ：', firefoxFont: 'Firefox PiP の文字サイズ：',
+    firefoxHint: '設定は自動的に保存されます。', theme: 'テーマ：', font: '文字サイズ：',
+    annotations: ' 注釈を表示', scroll: ' 自動スクロール',
+    synced: ' 同期された歌詞がある場合、現在の行を強調表示',
+    spotifyLyrics: ' Genius に歌詞がない場合、Spotify の歌詞を表示',
+    submit: ' Spotify の歌詞を Genius に投稿するよう提案', suggestions: ' Spotify のおすすめを隠す',
+    nowPlaying: ' Spotify の再生中ビューを隠す', romaji: 'ローマ字：',
+    low: '優先度低', high: '優先度高', compression: '圧縮：',
+    enabled: '有効', disabled: '無効', close: '閉じる', clearCache: 'キャッシュを削除',
+    cleared: '削除しました', debugOn: 'デバッグ有効', debugOff: 'デバッグ無効',
+    powered: '提供：', contributors: ' と貢献者。', modifications: '修正と改善（2026）：',
+    license: 'GNU 一般公衆利用許諾書 v3.0 に基づき提供'
+  },
+  ko: {
+    language: '언어', autoChoice: '자동', menuTitle: '가사 설정', support: '문제 신고',
+    lyricsGroup: '가사', appearance: '모양', fontFamily: '글꼴', fontDefault: '테마 기본값',
+    fontSystem: '시스템', textColor: '글자 색상', backgroundColor: '배경 색상',
+    highlightColor: '현재 줄 색상', resetColor: '기본값', moreCredits: '명 더 보기', advanced: '고급',
+    hide: '숨기기', options: '설정', wrongLyrics: '잘못된 가사', back: '검색으로 돌아가기',
+    search: 'Genius 검색', searchHint: '노래 또는 아티스트 검색', searchButton: '검색',
+    searching: '검색 중…', searchError: '검색에 실패했습니다. 다시 시도하세요.',
+    noResults: '검색 결과 없음', results: '개 결과', view: '회 조회', complete: '완성',
+    incomplete: '미완성', instrumental: '연주곡',
+    autoShow: ' 노래가 바뀌면 가사 자동 표시', autoShowHint: '(끄면 오른쪽 위의 작은 버튼을 사용하세요)',
+    pip: '화면 속 화면: ', pipHint: '브라우저가 지원하면 가사를 별도 창에 표시합니다.',
+    pipDisabled: '사용 안 함', pipHidden: '탭이 숨겨졌을 때', pipAlways: '항상',
+    firefoxSize: 'Firefox PiP 크기: ', firefoxFont: 'Firefox PiP 글꼴 크기: ',
+    firefoxHint: '값이 자동으로 저장됩니다.', theme: '테마: ', font: '글꼴 크기: ',
+    annotations: ' 주석 표시', scroll: ' 자동 스크롤',
+    synced: ' 동기화된 가사가 있으면 현재 줄 강조',
+    spotifyLyrics: ' Genius에 가사가 없으면 Spotify 가사 표시',
+    submit: ' Spotify 가사를 Genius에 제출하도록 제안', suggestions: ' Spotify 추천 숨기기',
+    nowPlaying: ' Spotify 지금 재생 중 보기 숨기기', romaji: '로마자: ',
+    low: '낮은 우선순위', high: '높은 우선순위', compression: '압축: ',
+    enabled: '사용', disabled: '사용 안 함', close: '닫기', clearCache: '캐시 삭제',
+    cleared: '삭제됨', debugOn: '디버그 켜짐', debugOff: '디버그 꺼짐',
+    powered: '제공: ', contributors: ' 및 기여자.', modifications: '수정 및 개선(2026): ',
+    license: 'GNU 일반 공중 사용 허가서 v3.0에 따라 배포'
+  },
+  id: {
+    language: 'Bahasa', autoChoice: 'Otomatis', menuTitle: 'Pengaturan lirik', support: 'Laporkan masalah',
+    lyricsGroup: 'Lirik', appearance: 'Tampilan', fontFamily: 'Jenis huruf', fontDefault: 'Bawaan tema',
+    fontSystem: 'Sistem', textColor: 'Warna teks', backgroundColor: 'Warna latar',
+    highlightColor: 'Warna baris saat ini', resetColor: 'Bawaan', moreCredits: 'lainnya',
+    advanced: 'Lanjutan', hide: 'Sembunyikan', options: 'Pengaturan', wrongLyrics: 'Lirik salah',
+    back: 'Kembali ke pencarian', search: 'Cari di Genius', searchHint: 'Cari lagu atau artis',
+    searchButton: 'Cari', searching: 'Mencari…', searchError: 'Pencarian gagal. Coba lagi.',
+    noResults: 'Tidak ada hasil', results: 'hasil', view: 'tayangan', complete: 'Lengkap',
+    incomplete: 'Belum lengkap', instrumental: 'Instrumental',
+    autoShow: ' Tampilkan lirik otomatis saat lagu baru dimulai',
+    autoShowHint: '(jika dimatikan, gunakan tombol kecil di kanan atas)',
+    pip: 'Gambar dalam gambar: ', pipHint: 'Tampilkan lirik di jendela mengambang jika peramban mendukung.',
+    pipDisabled: 'Nonaktif', pipHidden: 'Saat tab tersembunyi', pipAlways: 'Selalu',
+    firefoxSize: 'Ukuran Firefox PiP: ', firefoxFont: 'Ukuran huruf Firefox PiP: ',
+    firefoxHint: 'Nilai ini disimpan otomatis.', theme: 'Tema: ', font: 'Ukuran huruf: ',
+    annotations: ' Tampilkan anotasi', scroll: ' Gulir otomatis',
+    synced: ' Sorot baris saat ini jika lirik tersinkron tersedia',
+    spotifyLyrics: ' Tampilkan lirik Spotify jika tidak tersedia di Genius',
+    submit: ' Sarankan pengiriman lirik Spotify ke Genius', suggestions: ' Sembunyikan saran Spotify',
+    nowPlaying: ' Sembunyikan tampilan Sedang Diputar Spotify', romaji: 'Romaji: ',
+    low: 'Prioritas rendah', high: 'Prioritas tinggi', compression: 'Kompresi: ',
+    enabled: 'Aktif', disabled: 'Nonaktif', close: 'Tutup', clearCache: 'Hapus cache',
+    cleared: 'Dihapus', debugOn: 'Debug aktif', debugOff: 'Debug nonaktif',
+    powered: 'Didukung oleh ', contributors: ' dan kontributor.', modifications: 'Perbaikan dan peningkatan (2026): ',
+    license: 'Dilisensikan berdasarkan GNU General Public License v3.0'
+  },
+  bn: {
+    language: 'ভাষা', autoChoice: 'স্বয়ংক্রিয়', menuTitle: 'গানের কথার বিকল্প', support: 'সমস্যা জানান',
+    lyricsGroup: 'গানের কথা', appearance: 'চেহারা', fontFamily: 'ফন্ট', fontDefault: 'থিমের ডিফল্ট',
+    fontSystem: 'সিস্টেম', textColor: 'লেখার রং', backgroundColor: 'পটভূমির রং',
+    highlightColor: 'বর্তমান লাইনের রং', resetColor: 'ডিফল্ট', moreCredits: 'আরও',
+    advanced: 'উন্নত', hide: 'লুকান', options: 'বিকল্প', wrongLyrics: 'ভুল গানের কথা',
+    back: 'অনুসন্ধানে ফিরুন', search: 'Genius-এ খুঁজুন', searchHint: 'গান বা শিল্পী খুঁজুন',
+    searchButton: 'খুঁজুন', searching: 'খোঁজা হচ্ছে…', searchError: 'অনুসন্ধান ব্যর্থ হয়েছে। আবার চেষ্টা করুন।',
+    noResults: 'কোনো ফল পাওয়া যায়নি', results: 'ফলাফল', view: 'বার দেখা হয়েছে',
+    complete: 'সম্পূর্ণ', incomplete: 'অসম্পূর্ণ', instrumental: 'যন্ত্রসংগীত',
+    autoShow: ' নতুন গান শুরু হলে কথা স্বয়ংক্রিয়ভাবে দেখান',
+    autoShowHint: '(বন্ধ থাকলে উপরের ডান দিকের ছোট বোতামটি ব্যবহার করুন)',
+    pip: 'পিকচার-ইন-পিকচার: ', pipHint: 'ব্রাউজার সমর্থন করলে ভাসমান উইন্ডোতে গানের কথা দেখান।',
+    pipDisabled: 'বন্ধ', pipHidden: 'ট্যাব লুকানো থাকলে', pipAlways: 'সব সময়',
+    firefoxSize: 'Firefox PiP-এর আকার: ', firefoxFont: 'Firefox PiP-এর ফন্টের আকার: ',
+    firefoxHint: 'এই মানগুলো স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়।', theme: 'থিম: ', font: 'ফন্টের আকার: ',
+    annotations: ' টীকা দেখান', scroll: ' স্বয়ংক্রিয় স্ক্রল',
+    synced: ' সময়ের সঙ্গে মেলানো কথা থাকলে বর্তমান লাইন হাইলাইট করুন',
+    spotifyLyrics: ' Genius-এ কথা না থাকলে Spotify-এর কথা দেখান',
+    submit: ' Spotify-এর কথা Genius-এ জমা দেওয়ার পরামর্শ দিন', suggestions: ' Spotify-এর সুপারিশ লুকান',
+    nowPlaying: ' Spotify-এর এখন চলছে দৃশ্য লুকান', romaji: 'রোমাজি: ',
+    low: 'কম অগ্রাধিকার', high: 'বেশি অগ্রাধিকার', compression: 'সংকোচন: ',
+    enabled: 'চালু', disabled: 'বন্ধ', close: 'বন্ধ করুন', clearCache: 'ক্যাশ পরিষ্কার করুন',
+    cleared: 'পরিষ্কার হয়েছে', debugOn: 'ডিবাগ চালু', debugOff: 'ডিবাগ বন্ধ',
+    powered: 'তৈরি হয়েছে ', contributors: ' এবং অবদানকারীদের সহায়তায়।',
+    modifications: 'সংশোধন ও উন্নতি (2026): ', license: 'GNU জেনারেল পাবলিক লাইসেন্স v3.0-এর অধীনে লাইসেন্সপ্রাপ্ত'
+  }
+})
+
 function detectUiLanguage () {
   if (/^\/intl-pt(?:\/|$)/i.test(document.location.pathname)) return 'pt-PT'
   const locale = document.documentElement.lang || navigator.language || navigator.languages?.[0] || ''
   if (/^pt-br(?:-|$)/i.test(locale)) return 'pt-BR'
   if (/^pt(?:-|$)/i.test(locale)) return 'pt-PT'
+  if (/^zh(?:-|$)/i.test(locale)) return 'zh-CN'
   const base = locale.split('-')[0].toLowerCase()
   return Object.hasOwn(UI_TEXT, base) ? base : 'en'
 }
 
+function currentUiLanguage () {
+  return uiLanguagePreference === 'auto' ? detectUiLanguage() : uiLanguagePreference
+}
+
 function uiText () {
-  const language = uiLanguagePreference === 'auto' ? detectUiLanguage() : uiLanguagePreference
-  return UI_TEXT[language] || UI_TEXT.en
+  return UI_TEXT[currentUiLanguage()] || UI_TEXT.en
+}
+
+function formatMoreCredits (count) {
+  if (currentUiLanguage() === 'zh-CN') return `另有${count}人`
+  if (currentUiLanguage() === 'ja') return `ほか${count}人`
+  if (currentUiLanguage() === 'ko') return `${count}명 더 보기`
+  if (currentUiLanguage() === 'ar') {
+    if (count === '1') return 'شخص آخر'
+    if (count === '2') return 'شخصان آخران'
+  }
+  return `${count} ${uiText().moreCredits}`
 }
 
 function translateGeniusHeader (iframeDocument) {
@@ -1247,9 +1517,31 @@ function translateGeniusHeader (iframeDocument) {
     const count = button.dataset.geniusMoreCount || /^([0-9]+)\s*more$/i.exec(button.textContent.trim())?.[1]
     if (!count) continue
     button.dataset.geniusMoreCount = count
-    const translated = `${count} ${uiText().moreCredits}`
+    const translated = formatMoreCredits(count)
     if (button.textContent !== translated) button.textContent = translated
   }
+}
+
+function applyLyricsAppearance (iframeDocument) {
+  if (!iframeDocument?.head) return
+  let style = iframeDocument.getElementById('genius-user-appearance')
+  if (!style) {
+    style = iframeDocument.createElement('style')
+    style.id = 'genius-user-appearance'
+    iframeDocument.head.appendChild(style)
+  }
+  const rules = []
+  const font = LYRICS_FONTS[appearance.fontFamily]
+  if (font) rules.push(`#lyrics-root.mylyrics, [data-lyrics-container="true"] { font-family: ${font} !important; }`)
+  if (appearance.textColor) rules.push(`#lyrics-root.mylyrics, [data-lyrics-container="true"], [data-lyrics-container="true"] p, [data-lyrics-container="true"] a { color: ${appearance.textColor} !important; }`)
+  if (appearance.backgroundColor) rules.push(`body, html #application { background-color: ${appearance.backgroundColor} !important; background-image: none !important; }`)
+  if (appearance.highlightColor) {
+    const red = parseInt(appearance.highlightColor.slice(1, 3), 16)
+    const green = parseInt(appearance.highlightColor.slice(3, 5), 16)
+    const blue = parseInt(appearance.highlightColor.slice(5, 7), 16)
+    rules.push(`.genius-synced-active { border-left-color: ${appearance.highlightColor} !important; background: rgba(${red}, ${green}, ${blue}, .16) !important; }`)
+  }
+  style.textContent = rules.join('\n')
 }
 
 function styleLyricsBar (bar) {
@@ -1311,6 +1603,17 @@ function translateOptionsMenu (win) {
   }
   selectLabel('selectTheme748', t.theme)
   label('inputFontSize748', t.font)
+  const appearanceOptions = win.querySelector('.genius-appearance-options')
+  if (appearanceOptions) {
+    appearanceOptions.querySelector('summary').textContent = t.appearance
+    appearanceOptions.querySelector('label[for="genius-lyrics-font"]').textContent = t.fontFamily
+    appearanceOptions.querySelector('#genius-lyrics-font option[value="default"]').textContent = t.fontDefault
+    appearanceOptions.querySelector('#genius-lyrics-font option[value="system"]').textContent = t.fontSystem
+    for (const key of APPEARANCE_KEYS) {
+      appearanceOptions.querySelector(`label[for="genius-${key}"]`).textContent = t[key]
+      appearanceOptions.querySelector(`#genius-reset-${key}`).textContent = t.resetColor
+    }
+  }
   label('checkAnnotationsEnabled748', t.annotations)
   label('checkAutoScrollEnabled748', t.scroll)
   label('genius-synced-line-highlight', t.synced)
@@ -1381,7 +1684,9 @@ function styleOptionsMenu (win) {
   for (const [value, title] of [
     ['auto', uiText().autoChoice], ['en', 'English'], ['pt-PT', 'Português (Portugal)'],
     ['pt-BR', 'Português (Brasil)'], ['es', 'Español'], ['fr', 'Français'],
-    ['de', 'Deutsch'], ['it', 'Italiano']
+    ['de', 'Deutsch'], ['it', 'Italiano'], ['zh-CN', '简体中文'], ['hi', 'हिन्दी'],
+    ['ar', 'العربية'], ['bn', 'বাংলা'], ['ru', 'Русский'], ['ja', '日本語'],
+    ['ko', '한국어'], ['id', 'Bahasa Indonesia']
   ]) {
     const option = language.appendChild(document.createElement('option'))
     option.value = value
@@ -1397,6 +1702,59 @@ function styleOptionsMenu (win) {
     translateGeniusHeader(syncedLines.document)
   })
 
+  const appearanceOptions = document.createElement('details')
+  appearanceOptions.className = 'genius-appearance-options'
+  appearanceOptions.appendChild(document.createElement('summary'))
+  const fontRow = appearanceOptions.appendChild(document.createElement('div'))
+  const fontLabel = fontRow.appendChild(document.createElement('label'))
+  fontLabel.htmlFor = 'genius-lyrics-font'
+  const fontSelect = fontRow.appendChild(document.createElement('select'))
+  fontSelect.id = 'genius-lyrics-font'
+  for (const [value, title] of [
+    ['default', uiText().fontDefault], ['system', uiText().fontSystem],
+    ['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']
+  ]) {
+    const option = fontSelect.appendChild(document.createElement('option'))
+    option.value = value
+    option.textContent = title
+  }
+  fontSelect.value = appearance.fontFamily
+  fontSelect.addEventListener('change', () => {
+    appearance.fontFamily = Object.hasOwn(LYRICS_FONTS, fontSelect.value) ? fontSelect.value : 'default'
+    GM.setValue('lyrics_font_family', appearance.fontFamily)
+    applyLyricsAppearance(syncedLines.document)
+  })
+  for (const [key, defaultColor] of [
+    ['textColor', genius.option.themeKey === 'cleanwhite' ? '#000000' : '#e5e5e5'],
+    ['backgroundColor', genius.option.themeKey === 'cleanwhite' ? '#ffffff' : '#151515'],
+    ['highlightColor', '#1ed760']
+  ]) {
+    const colorRow = appearanceOptions.appendChild(document.createElement('div'))
+    const label = colorRow.appendChild(document.createElement('label'))
+    label.htmlFor = 'genius-' + key
+    const input = colorRow.appendChild(document.createElement('input'))
+    input.type = 'color'
+    input.id = 'genius-' + key
+    input.value = appearance[key] || defaultColor
+    const reset = colorRow.appendChild(document.createElement('button'))
+    reset.type = 'button'
+    reset.id = 'genius-reset-' + key
+    reset.disabled = !appearance[key]
+    input.addEventListener('input', () => {
+      appearance[key] = validColor(input.value)
+      reset.disabled = !appearance[key]
+      GM.setValue('lyrics_' + key, appearance[key])
+      applyLyricsAppearance(syncedLines.document)
+    })
+    reset.addEventListener('click', () => {
+      appearance[key] = ''
+      input.value = defaultColor
+      reset.disabled = true
+      GM.setValue('lyrics_' + key, '')
+      applyLyricsAppearance(syncedLines.document)
+    })
+  }
+
   const addRows = (parent, rows) => rows.filter(Boolean).forEach(element => parent.appendChild(element))
   const createSection = (title, rows, className) => {
     const section = win.insertBefore(document.createElement('section'), actions)
@@ -1405,7 +1763,11 @@ function styleOptionsMenu (win) {
     heading.textContent = title
     addRows(section, rows)
   }
-  createSection('Lyrics', [autoShow, theme, fontSize, annotations, autoScroll, synced], 'genius-options-lyrics')
+  const appearanceSection = document.createElement('div')
+  appearanceSection.className = 'genius-appearance-row'
+  appearanceSection.appendChild(appearanceOptions)
+  appearanceOptions.insertBefore(fontSize, appearanceOptions.children[2])
+  createSection('Lyrics', [autoShow, theme, appearanceSection, annotations, autoScroll, synced], 'genius-options-lyrics')
   createSection('Spotify', [spotifyLyrics, submitLyrics, hideSuggestions, hideNowPlaying], 'genius-options-spotify')
   const advanced = win.insertBefore(document.createElement('details'), actions)
   advanced.className = 'genius-options-advanced'
@@ -1436,7 +1798,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.11 · GeniusLyrics v5.16.21.5'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.12 · GeniusLyrics v5.16.21.5'
   }
   translateOptionsMenu(win)
 }
@@ -1582,6 +1944,33 @@ function addCss () {
   }
   #myconfigwin39457845 .genius-language-picker select {
     min-width: 150px;
+  }
+  #myconfigwin39457845 .genius-appearance-options summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+  #myconfigwin39457845 .genius-appearance-options > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 10px 0 0;
+  }
+  #myconfigwin39457845 .genius-appearance-options select {
+    min-width: 120px;
+  }
+  #myconfigwin39457845 .genius-appearance-options input[type="color"] {
+    width: 42px;
+    height: 32px;
+    padding: 2px;
+    cursor: pointer;
+  }
+  #myconfigwin39457845 .genius-appearance-options button {
+    font-size: 12px;
+  }
+  #myconfigwin39457845 .genius-appearance-options button:disabled {
+    opacity: .5;
+    cursor: default;
   }
   #myconfigwin39457845 .genius-options-version {
     display: block;
@@ -1915,6 +2304,7 @@ function onLyricsFrameReady (details) {
     }
   `
   details.document.head.appendChild(style)
+  applyLyricsAppearance(details.document)
 }
 
 function styleIframeContent () {
