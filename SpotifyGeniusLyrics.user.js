@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.8
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/681b6caad901ff0982c83abb6bf33b8f8f422a7e/GeniusLyrics.js
+// @version         23.6.21.9
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -907,7 +907,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.8 · GeniusLyrics v5.16.21.4'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.9 · GeniusLyrics v5.16.21.5'
   }
   translateOptionsMenu(win)
 }
