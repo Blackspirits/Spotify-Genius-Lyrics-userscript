@@ -194,3 +194,26 @@ test('the Spotify page adopts its loaded lyrics frame for live settings and sync
   vm.runInContext('updateAutoScroll()', vmContext)
   assert.equal(vm.runInContext('syncedLines.document', vmContext), null)
 })
+
+test('passes the saved lyric appearance to Picture-in-Picture and refreshes an open window', () => {
+  const vmContext = context()
+  let refreshes = 0
+  vm.runInContext(`
+    appearance.fontFamily = 'serif'
+    appearance.textColor = '#f4f4f4'
+    appearance.backgroundColor = '#381818'
+    appearance.highlightColor = '#ffcc00'
+    genius.option.fontSize = 25
+    genius.f.refreshPictureInPictureAppearance = () => { refreshed() }
+  `, vmContext)
+  vmContext.refreshed = () => { refreshes++ }
+  assert.deepEqual(JSON.parse(JSON.stringify(vmContext.lyricsOptions.getPictureInPictureAppearance())), {
+    fontFamily: 'Georgia, serif',
+    fontSize: 25,
+    textColor: '#f4f4f4',
+    backgroundColor: '#381818',
+    highlightColor: '#ffcc00'
+  })
+  vm.runInContext('refreshPictureInPictureAppearance()', vmContext)
+  assert.equal(refreshes, 1)
+})
