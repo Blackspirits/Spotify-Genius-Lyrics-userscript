@@ -138,3 +138,16 @@ test('applies safe appearance settings within the lyrics frame', () => {
   vm.runInContext("appearance.textColor = ''; applyLyricsAppearance(frame)", vmContext)
   assert.doesNotMatch(style.textContent, /color: #ffffff/)
 })
+
+test('updates the lyric font size immediately while the options are open', () => {
+  const vmContext = context()
+  const lyric = { style: { fontSize: '', removeProperty: () => { lyric.style.fontSize = '' } } }
+  vmContext.frame = { querySelectorAll: () => [lyric] }
+  vm.runInContext('applyLiveFontSize(frame, 28)', vmContext)
+  assert.equal(lyric.style.fontSize, '28px')
+  vm.runInContext('applyLiveFontSize(frame, 0)', vmContext)
+  assert.equal(lyric.style.fontSize, '')
+  vm.runInContext('applyLiveFontSize(frame, 500)', vmContext)
+  assert.equal(lyric.style.fontSize, '99px')
+  assert.equal(vm.runInContext("uiText().saveAndView", vmContext), 'Save and view')
+})
