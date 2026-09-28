@@ -6,24 +6,38 @@ const vm = require('node:vm')
 
 const script = readFileSync(join(__dirname, '..', 'SpotifyGeniusLyrics.user.js'), 'utf8')
 
-function context () {
+function context ({ frame = false } = {}) {
+  const intervals = []
+  const commands = []
   const sandbox = vm.createContext({
     document: {
       documentElement: { lang: 'en' },
-      location: { hostname: 'open.spotify.com', pathname: '/' },
+      location: { hostname: 'open.spotify.com', pathname: frame ? '/robots.txt' : '/', hash: frame ? '#html:post' : '' },
       querySelectorAll: () => []
     },
     navigator: { language: 'en', languages: ['en'] },
-    GM: { getValue: async (_key, fallback) => fallback, registerMenuCommand: () => {} },
+    GM: { getValue: async (_key, fallback) => fallback, registerMenuCommand: command => commands.push(command) },
     geniusLyrics: options => {
       sandbox.lyricsOptions = options
       return { f: { scrollLyrics: () => {} }, onThemeChanged: [], option: { fontSize: 26 } }
     },
-    window: { setInterval: () => {} }
+    window: { top: frame ? {} : null, setInterval: (fn, ms) => intervals.push(ms) }
   })
+  if (!frame) sandbox.window.top = sandbox.window
+  sandbox.intervals = intervals
+  sandbox.commands = commands
   vm.runInContext(script, sandbox)
   return sandbox
 }
+
+test('registers Spotify timers and menu commands only in the main page', () => {
+  const page = context()
+  const frame = context({ frame: true })
+  assert.equal(page.commands.length, 3)
+  assert.equal(page.intervals.includes(1000), true)
+  assert.deepEqual(frame.commands, [])
+  assert.deepEqual(frame.intervals, [])
+})
 
 test('matches timed Korean verses in order, including a repeated chorus', () => {
   const vmContext = context()
