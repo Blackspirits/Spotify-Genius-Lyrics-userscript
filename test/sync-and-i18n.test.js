@@ -99,3 +99,42 @@ test('translates Genius credit expansion and updates it when the language change
   vm.runInContext("uiLanguagePreference = 'es'; translateGeniusHeader(frame)", vmContext)
   assert.equal(button.textContent, '2 más')
 })
+
+test('covers added languages and localizes credit order for Chinese and Japanese', () => {
+  const vmContext = context()
+  const expected = { 'zh-CN': '搜索', hi: 'खोजें', ar: 'بحث', bn: 'খুঁজুন', ru: 'Найти', ja: '検索', ko: '검색', id: 'Cari' }
+  for (const [language, search] of Object.entries(expected)) {
+    vmContext.document.documentElement.lang = language
+    assert.equal(vm.runInContext('uiText().searchButton', vmContext), search)
+  }
+  vm.runInContext("uiLanguagePreference = 'zh-CN'", vmContext)
+  assert.equal(vm.runInContext("formatMoreCredits('2')", vmContext), '另有2人')
+  vm.runInContext("uiLanguagePreference = 'ja'", vmContext)
+  assert.equal(vm.runInContext("formatMoreCredits('2')", vmContext), 'ほか2人')
+  vm.runInContext("uiLanguagePreference = 'ar'", vmContext)
+  assert.equal(vm.runInContext("formatMoreCredits('1')", vmContext), 'شخص آخر')
+})
+
+test('applies safe appearance settings within the lyrics frame', () => {
+  const vmContext = context()
+  let style
+  vmContext.frame = {
+    head: { appendChild: element => { style = element } },
+    getElementById: () => style,
+    createElement: () => ({ textContent: '' })
+  }
+  vm.runInContext(`
+    appearance.fontFamily = 'serif'
+    appearance.textColor = validColor('#ffffff')
+    appearance.backgroundColor = validColor('#151515')
+    appearance.highlightColor = validColor('#ffcc00')
+    applyLyricsAppearance(frame)
+  `, vmContext)
+  assert.match(style.textContent, /font-family: Georgia, serif/)
+  assert.match(style.textContent, /color: #ffffff !important/)
+  assert.match(style.textContent, /background-color: #151515 !important/)
+  assert.match(style.textContent, /rgba\(255, 204, 0, \.16\)/)
+  assert.equal(vm.runInContext("validColor('red; color: blue')", vmContext), '')
+  vm.runInContext("appearance.textColor = ''; applyLyricsAppearance(frame)", vmContext)
+  assert.doesNotMatch(style.textContent, /color: #ffffff/)
+})
