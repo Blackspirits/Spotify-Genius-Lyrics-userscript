@@ -226,8 +226,8 @@ test('identifies the second occurrence of a repeated chorus in Picture-in-Pictur
   const vmContext = context()
   vm.runInContext(`
     syncedLines.document = {}
-    syncedLines.active = { textContent: 'Say yes, say yes' }
-    syncedLines.matches = [{ index: 3, element: syncedLines.active }]
+    syncedLines.active = { text: 'Say yes, say yes', index: 3, elements: [] }
+    syncedLines.matches = [syncedLines.active]
     lyricGroups = () => [
       { text: 'Say yes, say yes' }, { text: 'Other line' },
       { text: 'Another line' }, { text: 'Say yes, say yes' }
@@ -238,4 +238,143 @@ test('identifies the second occurrence of a repeated chorus in Picture-in-Pictur
   })
   vm.runInContext('syncedLines.active = null', vmContext)
   assert.equal(vmContext.lyricsOptions.getPictureInPictureActiveLine(), null)
+})
+
+function lyricsFrame (nestedBreaks) {
+  const textNode = value => ({ nodeType: 3, nodeName: '#text', textContent: value, parentNode: null })
+  const element = (name, children = [], attributes = []) => {
+    const node = {
+      nodeType: 1,
+      nodeName: name,
+      childNodes: [],
+      parentNode: null,
+      className: '',
+      hasAttribute: key => attributes.includes(key),
+      appendChild (child) {
+        if (child.parentNode) child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1)
+        this.childNodes.push(child)
+        child.parentNode = this
+        return child
+      },
+      insertBefore (child, next) {
+        if (child.parentNode) child.parentNode.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1)
+        this.childNodes.splice(this.childNodes.indexOf(next), 0, child)
+        child.parentNode = this
+      },
+      replaceWith (...children) {
+        const at = this.parentNode.childNodes.indexOf(this)
+        this.parentNode.childNodes.splice(at, 1, ...children)
+        for (const child of children) child.parentNode = this.parentNode
+        this.parentNode = null
+      },
+      classList: {
+        add (value) { node.className += ' ' + value },
+        remove (value) { node.className = node.className.replace(value, '') }
+      },
+      get textContent () { return this.childNodes.map(child => child.textContent).join('') }
+    }
+    for (const child of children) node.appendChild(child)
+    return node
+  }
+  const br = () => element('BR')
+  const header = element('DIV', [textNode('15 Contributors')], ['data-exclude-from-selection'])
+  const annotated = element('A', [element('SPAN', [textNode('Second lyric'), br(), textNode('Third lyric')])])
+  const lyrics = nestedBreaks
+    ? [textNode('First lyric'), br(), annotated, br(), textNode('Fourth lyric')]
+    : [element('P', [textNode('First lyric'), br(), textNode('Second lyric'), br(), textNode('Third lyric'), br(), textNode('Fourth lyric')])]
+  const container = element('DIV', [header, ...lyrics], ['data-lyrics-container'])
+  const walk = (root, flags, filter) => {
+    const nodes = []
+    const visit = parent => {
+      for (const child of parent.childNodes) {
+        if (filter.acceptNode(child) === 2) continue
+        nodes.push(child)
+        if (child.childNodes) visit(child)
+      }
+    }
+    visit(root)
+    let cursor = 0
+    return { nextNode: () => nodes[cursor++] || null }
+  }
+  const frame = {
+    defaultView: { NodeFilter: { SHOW_ELEMENT: 1, SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 } },
+    createTreeWalker: walk,
+    createElement: name => element(name.toUpperCase()),
+    querySelectorAll: selector => selector === '[data-lyrics-container="true"]'
+      ? [container]
+      : selector === 'span.genius-synced-line' ? [] : []
+  }
+  return { frame, container, annotated }
+}
+
+test('reads both Genius lyric layouts and preserves annotated links while highlighting', () => {
+  const vmContext = context()
+  for (const nestedBreaks of [false, true]) {
+    const { frame, container, annotated } = lyricsFrame(nestedBreaks)
+    vmContext.frame = frame
+    const lines = vm.runInContext('lyricGroups(frame).map(line => line.text)', vmContext)
+    assert.deepEqual(Array.from(lines), ['First lyric', 'Second lyric', 'Third lyric', 'Fourth lyric'])
+    vm.runInContext(`
+      syncedLines.document = frame
+      syncedLines.trackKey = 'test'
+      lastPlaybackTime = 0
+      applySyncedLines({ syncedLyrics: '[00:01.00] First lyric\\n[00:02.00] Second lyric\\n[00:03.00] Third lyric\\n[00:04.00] Fourth lyric' }, 'test', frame)
+    `, vmContext)
+    assert.equal(vm.runInContext('syncedLines.matches.length', vmContext), 4)
+    if (nestedBreaks) {
+      assert.equal(annotated.parentNode, container)
+      assert.equal(annotated.childNodes[0].childNodes.filter(node => node.className.includes('genius-synced-line')).length, 2)
+    }
+  }
+})
+
+test('keeps a stable song key across a one-second duration wobble and retries after rate limiting', async () => {
+  const vmContext = context()
+  let calls = 0
+  vmContext.URLSearchParams = URLSearchParams
+  vmContext.GM.xmlHttpRequest = async () => {
+    calls++
+    return calls === 1
+      ? { status: 429, responseHeaders: 'retry-after: 10' }
+      : { status: 200, response: [] }
+  }
+  vm.runInContext(`
+    getSongTitleAndArtist = () => [0, 'Say Yes', ['Loco']]
+    syncedLines.document = {}
+    requestSyncedLines(196)
+  `, vmContext)
+  await new Promise(resolve => setImmediate(resolve))
+  const firstKey = vm.runInContext('syncedLines.trackKey', vmContext)
+  assert.equal(vm.runInContext('syncedLines.requestedKey', vmContext), '')
+  assert.equal(vm.runInContext('syncedLines.cache.size', vmContext), 0)
+  vm.runInContext('syncedLines.blockedUntil = 0; syncedLines.nextRequestAt = 0; requestSyncedLines(195)', vmContext)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(vm.runInContext('syncedLines.trackKey', vmContext), firstKey)
+  assert.equal(calls, 2)
+})
+
+test('centers the active line without counting the iframe scroll position twice', () => {
+  const vmContext = context()
+  let top
+  const element = {
+    classList: { add: () => {}, remove: () => {} },
+    getBoundingClientRect: () => ({ top: 120 })
+  }
+  vmContext.scrollFrame = {
+    hidden: false,
+    scrollingElement: {
+      scrollTop: 900,
+      clientHeight: 400,
+      getBoundingClientRect: () => ({ top: -900 }),
+      scrollTo: options => { top = options.top }
+    }
+  }
+  vmContext.match = { time: 5, index: 0, text: 'First lyric', elements: [element] }
+  vm.runInContext(`
+    syncedLines.document = scrollFrame
+    syncedLines.matches = [match]
+    genius.f.isScrollLyricsEnabled = () => true
+    highlightSyncedLine(10)
+  `, vmContext)
+  assert.equal(top, 840)
 })
