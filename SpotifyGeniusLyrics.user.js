@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.13
+// @version         23.6.21.14
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -542,12 +542,36 @@ function clearSyncedHighlight () {
   syncedLines.active = null
 }
 
+function updateSyncedLineStatus () {
+  document.querySelectorAll('.genius-synced-count').forEach(status => {
+    status.textContent = `${uiText().syncedCount}: ${syncedLines.matches.length}`
+  })
+}
+
 function resetSyncedLines () {
   clearSyncedHighlight()
   syncedLines.document = null
   syncedLines.trackKey = ''
   syncedLines.requestedKey = ''
   syncedLines.matches = []
+  updateSyncedLineStatus()
+}
+
+function onLyricsReady () {
+  const iframe = document.getElementById('lyricsiframe')
+  let iframeDocument
+  try {
+    iframeDocument = iframe?.contentDocument
+  } catch (e) {
+    return
+  }
+  if (!iframeDocument?.querySelector('[data-lyrics-container="true"]')) return
+  resetSyncedLines()
+  syncedLines.document = iframeDocument
+  translateGeniusHeader(iframeDocument)
+  applyLyricsAppearance(iframeDocument)
+  applyLiveFontSize(iframeDocument, genius.option.fontSize)
+  installSyncedLineStyle(iframeDocument)
 }
 
 function applySyncedLines (record, key, iframeDocument) {
@@ -565,6 +589,7 @@ function applySyncedLines (record, key, iframeDocument) {
     match.element = element
   }
   syncedLines.matches = matches
+  updateSyncedLineStatus()
   highlightSyncedLine(lastPlaybackTime)
 }
 
@@ -578,6 +603,7 @@ function requestSyncedLines (duration) {
     clearSyncedHighlight()
     syncedLines.trackKey = key
     syncedLines.matches = []
+    updateSyncedLineStatus()
   }
   if (syncedLines.requestedKey === key) return
   if (syncedLines.cache.has(key)) {
@@ -647,6 +673,7 @@ function parsePlaybackTime (text) {
 }
 
 function updateAutoScroll () {
+  if (syncedLines.document && syncedLines.document !== document.getElementById('lyricsiframe')?.contentDocument) resetSyncedLines()
   const currentElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-position"]')
   const rightElement = document.querySelector('[data-testid="player-controls"] [data-testid="playback-duration"]')
   if (!currentElement || !rightElement) return
@@ -881,6 +908,7 @@ const UI_TEXT = {
     annotations: ' Show annotations',
     scroll: ' Automatic scrolling',
     synced: ' Highlight the current line when synchronized lyrics are available',
+    syncedCount: 'Matched lines in this song',
     spotifyLyrics: ' Show Spotify lyrics if no lyrics are found on Genius',
     submit: ' Suggest submitting Spotify lyrics to Genius',
     suggestions: ' Hide Spotify suggestions',
@@ -947,6 +975,7 @@ const UI_TEXT = {
     annotations: ' Mostrar anotações',
     scroll: ' Deslocação automática',
     synced: ' Destacar a linha atual quando existir sincronização',
+    syncedCount: 'Linhas sincronizadas nesta música',
     spotifyLyrics: ' Mostrar letras do Spotify quando não existem no Genius',
     submit: ' Sugerir letras do Spotify para o Genius',
     suggestions: ' Ocultar sugestões do Spotify',
@@ -1013,6 +1042,7 @@ const UI_TEXT = {
     annotations: ' Mostrar anotações',
     scroll: ' Rolagem automática',
     synced: ' Destacar a linha atual quando houver sincronização',
+    syncedCount: 'Linhas sincronizadas nesta música',
     spotifyLyrics: ' Mostrar letras do Spotify quando não houver no Genius',
     submit: ' Sugerir letras do Spotify para o Genius',
     suggestions: ' Ocultar sugestões do Spotify',
@@ -1079,6 +1109,7 @@ const UI_TEXT = {
     annotations: ' Mostrar anotaciones',
     scroll: ' Desplazamiento automático',
     synced: ' Resaltar la línea actual cuando haya letras sincronizadas',
+    syncedCount: 'Líneas sincronizadas en esta canción',
     spotifyLyrics: ' Mostrar letras de Spotify si no están en Genius',
     submit: ' Sugerir enviar letras de Spotify a Genius',
     suggestions: ' Ocultar sugerencias de Spotify',
@@ -1145,6 +1176,7 @@ const UI_TEXT = {
     annotations: ' Afficher les annotations',
     scroll: ' Défilement automatique',
     synced: ' Surligner la ligne actuelle si les paroles sont synchronisées',
+    syncedCount: 'Lignes synchronisées pour ce titre',
     spotifyLyrics: ' Afficher les paroles Spotify si Genius n’en propose pas',
     submit: ' Proposer les paroles Spotify à Genius',
     suggestions: ' Masquer les suggestions Spotify',
@@ -1211,6 +1243,7 @@ const UI_TEXT = {
     annotations: ' Anmerkungen anzeigen',
     scroll: ' Automatisches Scrollen',
     synced: ' Aktuelle Zeile bei synchronisiertem Liedtext hervorheben',
+    syncedCount: 'Synchronisierte Zeilen in diesem Lied',
     spotifyLyrics: ' Spotify-Liedtext anzeigen, wenn Genius keinen findet',
     submit: ' Spotify-Liedtext für Genius vorschlagen',
     suggestions: ' Spotify-Hinweise ausblenden',
@@ -1277,6 +1310,7 @@ const UI_TEXT = {
     annotations: ' Mostra annotazioni',
     scroll: ' Scorrimento automatico',
     synced: ' Evidenzia la riga corrente quando il testo è sincronizzato',
+    syncedCount: 'Righe sincronizzate in questo brano',
     spotifyLyrics: ' Mostra i testi di Spotify se Genius non li trova',
     submit: ' Suggerisci di inviare i testi Spotify a Genius',
     suggestions: ' Nascondi i suggerimenti Spotify',
@@ -1346,6 +1380,7 @@ Object.assign(UI_TEXT, {
     annotations: ' 显示注释',
     scroll: ' 自动滚动',
     synced: ' 有同步歌词时高亮当前行',
+    syncedCount: '本曲已同步行数',
     spotifyLyrics: ' Genius 没有歌词时显示 Spotify 歌词',
     submit: ' 建议将 Spotify 歌词提交到 Genius',
     suggestions: ' 隐藏 Spotify 推荐内容',
@@ -1412,6 +1447,7 @@ Object.assign(UI_TEXT, {
     annotations: ' टिप्पणियाँ दिखाएँ',
     scroll: ' अपने आप स्क्रॉल करें',
     synced: ' सिंक किए गए बोल उपलब्ध हों तो वर्तमान पंक्ति हाइलाइट करें',
+    syncedCount: 'इस गीत की सिंक की गई पंक्तियाँ',
     spotifyLyrics: ' Genius पर बोल न मिलने पर Spotify के बोल दिखाएँ',
     submit: ' Spotify के बोल Genius पर भेजने का सुझाव दें',
     suggestions: ' Spotify के सुझाव छिपाएँ',
@@ -1478,6 +1514,7 @@ Object.assign(UI_TEXT, {
     annotations: ' إظهار التعليقات التوضيحية',
     scroll: ' تمرير تلقائي',
     synced: ' تمييز السطر الحالي عند توفّر كلمات متزامنة',
+    syncedCount: 'الأسطر المتزامنة في هذه الأغنية',
     spotifyLyrics: ' إظهار كلمات Spotify إذا لم تتوفر على Genius',
     submit: ' اقتراح إضافة كلمات Spotify إلى Genius',
     suggestions: ' إخفاء اقتراحات Spotify',
@@ -1544,6 +1581,7 @@ Object.assign(UI_TEXT, {
     annotations: ' Показывать аннотации',
     scroll: ' Автоматическая прокрутка',
     synced: ' Подсвечивать текущую строку при наличии синхронизации',
+    syncedCount: 'Синхронизированных строк в этой песне',
     spotifyLyrics: ' Показывать текст из Spotify, если его нет в Genius',
     submit: ' Предлагать отправить текст Spotify в Genius',
     suggestions: ' Скрыть предложения Spotify',
@@ -1610,6 +1648,7 @@ Object.assign(UI_TEXT, {
     annotations: ' 注釈を表示',
     scroll: ' 自動スクロール',
     synced: ' 同期された歌詞がある場合、現在の行を強調表示',
+    syncedCount: 'この曲の同期済み行数',
     spotifyLyrics: ' Genius に歌詞がない場合、Spotify の歌詞を表示',
     submit: ' Spotify の歌詞を Genius に投稿するよう提案',
     suggestions: ' Spotify のおすすめを隠す',
@@ -1676,6 +1715,7 @@ Object.assign(UI_TEXT, {
     annotations: ' 주석 표시',
     scroll: ' 자동 스크롤',
     synced: ' 동기화된 가사가 있으면 현재 줄 강조',
+    syncedCount: '이 곡의 동기화된 줄 수',
     spotifyLyrics: ' Genius에 가사가 없으면 Spotify 가사 표시',
     submit: ' Spotify 가사를 Genius에 제출하도록 제안',
     suggestions: ' Spotify 추천 숨기기',
@@ -1742,6 +1782,7 @@ Object.assign(UI_TEXT, {
     annotations: ' Tampilkan anotasi',
     scroll: ' Gulir otomatis',
     synced: ' Sorot baris saat ini jika lirik tersinkron tersedia',
+    syncedCount: 'Baris tersinkron pada lagu ini',
     spotifyLyrics: ' Tampilkan lirik Spotify jika tidak tersedia di Genius',
     submit: ' Sarankan pengiriman lirik Spotify ke Genius',
     suggestions: ' Sembunyikan saran Spotify',
@@ -1808,6 +1849,7 @@ Object.assign(UI_TEXT, {
     annotations: ' টীকা দেখান',
     scroll: ' স্বয়ংক্রিয় স্ক্রল',
     synced: ' সময়ের সঙ্গে মেলানো কথা থাকলে বর্তমান লাইন হাইলাইট করুন',
+    syncedCount: 'এই গানে সিঙ্ক করা লাইন',
     spotifyLyrics: ' Genius-এ কথা না থাকলে Spotify-এর কথা দেখান',
     submit: ' Spotify-এর কথা Genius-এ জমা দেওয়ার পরামর্শ দিন',
     suggestions: ' Spotify-এর সুপারিশ লুকান',
@@ -1994,6 +2036,7 @@ function translateOptionsMenu (win) {
       appearanceOptions.querySelector(`#genius-reset-${key}`).textContent = t.resetColor
     }
     appearanceOptions.querySelector('.genius-save-and-view').textContent = t.saveAndView
+    updateSyncedLineStatus()
   }
   label('checkAnnotationsEnabled748', t.annotations)
   label('checkAutoScrollEnabled748', t.scroll)
@@ -2140,6 +2183,10 @@ function styleOptionsMenu (win) {
     })
   }
 
+  const syncedCount = appearanceOptions.appendChild(document.createElement('small'))
+  syncedCount.className = 'genius-synced-count'
+  syncedCount.textContent = `${uiText().syncedCount}: ${syncedLines.matches.length}`
+
   const preview = appearanceOptions.appendChild(document.createElement('div'))
   preview.className = 'genius-appearance-preview'
   const previewCaption = preview.appendChild(document.createElement('small'))
@@ -2236,7 +2283,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.13 · GeniusLyrics v5.16.21.5'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.14 · GeniusLyrics v5.16.21.5'
   }
   translateOptionsMenu(win)
   updatePreview()
@@ -2404,6 +2451,11 @@ function addCss () {
   }
   #myconfigwin39457845 .genius-appearance-options > div label {
     color: #f5f5f5;
+  }
+  #myconfigwin39457845 .genius-synced-count {
+    display: block;
+    margin: 8px 0 0;
+    color: #b3b3b3;
   }
   #myconfigwin39457845 .genius-appearance-preview {
     display: block;
@@ -2758,6 +2810,25 @@ function styleCompactLyricsFrame ({ document: iframeDocument, theme }) {
   iframeDocument.head.appendChild(style)
 }
 
+function installSyncedLineStyle (iframeDocument) {
+  if (iframeDocument.getElementById('genius-synced-line-style')) return
+  const style = iframeDocument.createElement('style')
+  style.id = 'genius-synced-line-style'
+  style.textContent = `
+    #lyrics-root .genius-synced-line {
+      border-left: 3px solid transparent;
+      padding-left: 5px;
+      transition: background-color .25s, border-color .25s;
+    }
+    #lyrics-root .genius-synced-active {
+      border-left-color: #1ed760;
+      background: rgba(30, 215, 96, .15);
+      border-radius: 3px;
+    }
+  `
+  iframeDocument.head.appendChild(style)
+}
+
 function onLyricsFrameReady (details) {
   styleCompactLyricsFrame(details)
   clearSyncedHighlight()
@@ -2771,20 +2842,7 @@ function onLyricsFrameReady (details) {
   }
   syncedLines.requestedKey = ''
   syncedLines.matches = []
-  const style = details.document.createElement('style')
-  style.textContent = `
-    #lyrics-root .genius-synced-line {
-      border-left: 3px solid transparent;
-      padding-left: 5px;
-      transition: background-color .25s, border-color .25s;
-    }
-    #lyrics-root .genius-synced-active {
-      border-left-color: #1ed760;
-      background: rgba(30, 215, 96, .15);
-      border-radius: 3px;
-    }
-  `
-  details.document.head.appendChild(style)
+  installSyncedLineStyle(details.document)
   applyLyricsAppearance(details.document)
 }
 
@@ -2917,6 +2975,7 @@ if (document.location.hostname === 'genius.com') {
     initResize,
     onResize,
     iframeLoadedCallback2: onLyricsFrameReady,
+    onLyricsReady,
     onLyricsBarReady: styleLyricsBar,
     onOptionsReady: styleOptionsMenu,
     config: [
