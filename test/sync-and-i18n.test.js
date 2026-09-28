@@ -82,3 +82,20 @@ test('provides every translated label and respects automatic or selected languag
   vm.runInContext("uiLanguagePreference = 'en'", vmContext)
   assert.equal(vm.runInContext('uiText().searchButton', vmContext), 'Search')
 })
+
+test('translates Genius credit expansion and updates it when the language changes', () => {
+  const vmContext = context()
+  const button = { textContent: '1more', dataset: {}, childElementCount: 0 }
+  const header = { querySelectorAll: () => [button] }
+  const frame = { querySelector: () => header }
+  vmContext.frame = frame
+  vm.runInContext("uiLanguagePreference = 'pt-PT'; translateGeniusHeader(frame)", vmContext)
+  assert.equal(button.textContent, '1 mais')
+  assert.equal(button.dataset.geniusMoreCount, '1')
+  vm.runInContext("uiLanguagePreference = 'en'; translateGeniusHeader(frame)", vmContext)
+  assert.equal(button.textContent, '1 more')
+  button.textContent = '2more'
+  delete button.dataset.geniusMoreCount
+  vm.runInContext("uiLanguagePreference = 'es'; translateGeniusHeader(frame)", vmContext)
+  assert.equal(button.textContent, '2 más')
+})
