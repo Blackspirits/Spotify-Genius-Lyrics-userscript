@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.12
+// @version         23.6.21.13
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -1830,6 +1830,27 @@ Object.assign(UI_TEXT, {
   }
 })
 
+const SAVE_VIEW_LABELS = {
+  en: 'Save and view',
+  'pt-PT': 'Guardar e ver',
+  'pt-BR': 'Salvar e visualizar',
+  es: 'Guardar y ver',
+  fr: 'Enregistrer et voir',
+  de: 'Speichern und ansehen',
+  it: 'Salva e visualizza',
+  'zh-CN': '保存并查看',
+  hi: 'सहेजें और देखें',
+  ar: 'حفظ وعرض',
+  bn: 'সংরক্ষণ করে দেখুন',
+  ru: 'Сохранить и посмотреть',
+  ja: '保存して表示',
+  ko: '저장하고 보기',
+  id: 'Simpan dan lihat'
+}
+for (const [language, label] of Object.entries(SAVE_VIEW_LABELS)) {
+  UI_TEXT[language].saveAndView = label
+}
+
 function detectUiLanguage () {
   if (/^\/intl-pt(?:\/|$)/i.test(document.location.pathname)) return 'pt-PT'
   const locale = document.documentElement.lang || navigator.language || navigator.languages?.[0] || ''
@@ -1892,6 +1913,15 @@ function applyLyricsAppearance (iframeDocument) {
     rules.push(`.genius-synced-active { border-left-color: ${appearance.highlightColor} !important; background: rgba(${red}, ${green}, ${blue}, .16) !important; }`)
   }
   style.textContent = rules.join('\n')
+}
+
+function applyLiveFontSize (iframeDocument, value) {
+  if (!iframeDocument?.querySelectorAll) return
+  const size = Math.min(99, Math.max(0, parseInt(value) || 0))
+  for (const lyrics of iframeDocument.querySelectorAll('#lyrics_text_div, div[data-lyrics-container="true"]')) {
+    if (size) lyrics.style.fontSize = `${size}px`
+    else lyrics.style.removeProperty('font-size')
+  }
 }
 
 function styleLyricsBar (bar) {
@@ -1963,6 +1993,7 @@ function translateOptionsMenu (win) {
       appearanceOptions.querySelector(`label[for="genius-${key}"]`).textContent = t[key]
       appearanceOptions.querySelector(`#genius-reset-${key}`).textContent = t.resetColor
     }
+    appearanceOptions.querySelector('.genius-save-and-view').textContent = t.saveAndView
   }
   label('checkAnnotationsEnabled748', t.annotations)
   label('checkAutoScrollEnabled748', t.scroll)
@@ -2050,6 +2081,7 @@ function styleOptionsMenu (win) {
     document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
     document.querySelectorAll('.genius-search-container').forEach(translateSearch)
     translateGeniusHeader(syncedLines.document)
+    updatePreview()
   })
 
   const appearanceOptions = document.createElement('details')
@@ -2073,6 +2105,7 @@ function styleOptionsMenu (win) {
     appearance.fontFamily = Object.hasOwn(LYRICS_FONTS, fontSelect.value) ? fontSelect.value : 'default'
     GM.setValue('lyrics_font_family', appearance.fontFamily)
     applyLyricsAppearance(syncedLines.document)
+    updatePreview()
   })
   for (const [key, defaultColor] of [
     ['textColor', genius.option.themeKey === 'cleanwhite' ? '#000000' : '#e5e5e5'],
@@ -2095,6 +2128,7 @@ function styleOptionsMenu (win) {
       reset.disabled = !appearance[key]
       GM.setValue('lyrics_' + key, appearance[key])
       applyLyricsAppearance(syncedLines.document)
+      updatePreview()
     })
     reset.addEventListener('click', () => {
       appearance[key] = ''
@@ -2102,8 +2136,62 @@ function styleOptionsMenu (win) {
       reset.disabled = true
       GM.setValue('lyrics_' + key, '')
       applyLyricsAppearance(syncedLines.document)
+      updatePreview()
     })
   }
+
+  const preview = appearanceOptions.appendChild(document.createElement('div'))
+  preview.className = 'genius-appearance-preview'
+  const previewCaption = preview.appendChild(document.createElement('small'))
+  const previewFirst = preview.appendChild(document.createElement('p'))
+  const previewActive = preview.appendChild(document.createElement('p'))
+  previewFirst.dir = previewActive.dir = 'auto'
+  const fontSizeInput = fontSize?.querySelector('#inputFontSize748')
+  const updatePreview = () => {
+    const t = uiText()
+    const themeIsLight = genius.option.themeKey === 'cleanwhite' || genius.option.themeKey === 'genius'
+    const accent = appearance.highlightColor || '#1ed760'
+    const red = parseInt(accent.slice(1, 3), 16)
+    const green = parseInt(accent.slice(3, 5), 16)
+    const blue = parseInt(accent.slice(5, 7), 16)
+    const size = Math.min(99, Math.max(0, parseInt(fontSizeInput?.value) || 0))
+    const lines = (syncedLines.document?.querySelector('[data-lyrics-container="true"] p')?.innerText || '')
+      .split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('[')).slice(0, 2)
+    previewCaption.textContent = t.lyricsGroup + ' · ' + t.appearance
+    previewFirst.textContent = lines[0] || t.lyricsGroup + ' ♪'
+    previewActive.textContent = lines[1] || t.appearance + ' ♪'
+    preview.style.fontFamily = LYRICS_FONTS[appearance.fontFamily] || 'inherit'
+    preview.style.fontSize = `${size || 20}px`
+    preview.style.color = appearance.textColor || (themeIsLight ? '#202020' : '#e5e5e5')
+    preview.style.backgroundColor = appearance.backgroundColor || (themeIsLight ? '#ffffff' : '#151515')
+    previewActive.style.borderLeft = `3px solid ${accent}`
+    previewActive.style.backgroundColor = `rgba(${red}, ${green}, ${blue}, .16)`
+  }
+  fontSizeInput?.addEventListener('input', () => {
+    applyLiveFontSize(syncedLines.document, fontSizeInput.value)
+    updatePreview()
+  })
+  const saveAndView = appearanceOptions.appendChild(document.createElement('button'))
+  saveAndView.className = 'genius-save-and-view'
+  saveAndView.type = 'button'
+  saveAndView.addEventListener('click', async () => {
+    saveAndView.disabled = true
+    const size = Math.min(99, Math.max(0, parseInt(fontSizeInput?.value) || 0))
+    if (fontSizeInput) {
+      fontSizeInput.value = `${size}`
+      if (genius.option.fontSize !== size) fontSizeInput.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    try {
+      await Promise.all([
+        GM.setValue('lyrics_font_family', appearance.fontFamily),
+        ...APPEARANCE_KEYS.map(key => GM.setValue('lyrics_' + key, appearance[key])),
+        GM.setValue('fontsize', size)
+      ])
+      close.click()
+    } finally {
+      saveAndView.disabled = false
+    }
+  })
 
   const addRows = (parent, rows) => rows.filter(Boolean).forEach(element => parent.appendChild(element))
   const createSection = (title, rows, className) => {
@@ -2148,9 +2236,10 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.12 · GeniusLyrics v5.16.21.5'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.13 · GeniusLyrics v5.16.21.5'
   }
   translateOptionsMenu(win)
+  updatePreview()
 }
 
 function addCss () {
@@ -2305,6 +2394,48 @@ function addCss () {
     justify-content: space-between;
     gap: 10px;
     margin: 10px 0 0;
+  }
+  #myconfigwin39457845 .genius-appearance-options > div:not(.genius-appearance-preview) {
+    padding: 9px 12px;
+    border: 1px solid #ffffff18;
+    border-radius: 7px;
+    background: #303030;
+    color: #f5f5f5;
+  }
+  #myconfigwin39457845 .genius-appearance-options > div label {
+    color: #f5f5f5;
+  }
+  #myconfigwin39457845 .genius-appearance-preview {
+    display: block;
+    box-sizing: border-box;
+    padding: 14px;
+    border: 1px solid #ffffff38;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  #myconfigwin39457845 .genius-appearance-preview small {
+    display: block;
+    margin-bottom: 12px;
+    font: 12px system-ui, sans-serif;
+  }
+  #myconfigwin39457845 .genius-appearance-preview p {
+    margin: 8px 0;
+    overflow-wrap: anywhere;
+  }
+  #myconfigwin39457845 .genius-appearance-preview p:last-child {
+    padding: 4px 8px;
+  }
+  #myconfigwin39457845 .genius-save-and-view {
+    width: 100%;
+    margin: 12px 0 0;
+    background: #1ed760;
+    border-color: #1ed760;
+    color: #121212;
+    font-weight: 700;
+  }
+  #myconfigwin39457845 .genius-save-and-view:hover,
+  #myconfigwin39457845 .genius-save-and-view:focus-visible {
+    background: #36e773;
   }
   #myconfigwin39457845 .genius-appearance-options select {
     min-width: 120px;
