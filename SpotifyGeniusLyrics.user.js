@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.14
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
+// @version         23.6.21.15
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/4d526c274710ed14bfa3e53b3fa80ad9270ca1e9/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -87,7 +87,20 @@ Promise.all([
   appearance.fontFamily = Object.hasOwn(LYRICS_FONTS, font) ? font : 'default'
   APPEARANCE_KEYS.forEach((key, index) => { appearance[key] = validColor(colors[index]) })
   applyLyricsAppearance(syncedLines.document)
+  refreshPictureInPictureAppearance()
 })
+
+function getPictureInPictureAppearance () {
+  return {
+    ...appearance,
+    fontFamily: LYRICS_FONTS[appearance.fontFamily] || 'system-ui, sans-serif',
+    fontSize: genius?.option?.fontSize || 0
+  }
+}
+
+function refreshPictureInPictureAppearance () {
+  genius?.f?.refreshPictureInPictureAppearance?.()
+}
 
 function setFrameDimensions (container, iframe, bar) {
   iframe.style.width = container.clientWidth - 6 + 'px'
@@ -572,6 +585,7 @@ function onLyricsReady () {
   applyLyricsAppearance(iframeDocument)
   applyLiveFontSize(iframeDocument, genius.option.fontSize)
   installSyncedLineStyle(iframeDocument)
+  refreshPictureInPictureAppearance()
 }
 
 function applySyncedLines (record, key, iframeDocument) {
@@ -2148,6 +2162,7 @@ function styleOptionsMenu (win) {
     appearance.fontFamily = Object.hasOwn(LYRICS_FONTS, fontSelect.value) ? fontSelect.value : 'default'
     GM.setValue('lyrics_font_family', appearance.fontFamily)
     applyLyricsAppearance(syncedLines.document)
+    refreshPictureInPictureAppearance()
     updatePreview()
   })
   for (const [key, defaultColor] of [
@@ -2171,6 +2186,7 @@ function styleOptionsMenu (win) {
       reset.disabled = !appearance[key]
       GM.setValue('lyrics_' + key, appearance[key])
       applyLyricsAppearance(syncedLines.document)
+      refreshPictureInPictureAppearance()
       updatePreview()
     })
     reset.addEventListener('click', () => {
@@ -2179,6 +2195,7 @@ function styleOptionsMenu (win) {
       reset.disabled = true
       GM.setValue('lyrics_' + key, '')
       applyLyricsAppearance(syncedLines.document)
+      refreshPictureInPictureAppearance()
       updatePreview()
     })
   }
@@ -2234,6 +2251,7 @@ function styleOptionsMenu (win) {
         ...APPEARANCE_KEYS.map(key => GM.setValue('lyrics_' + key, appearance[key])),
         GM.setValue('fontsize', size)
       ])
+      refreshPictureInPictureAppearance()
       close.click()
     } finally {
       saveAndView.disabled = false
@@ -2283,7 +2301,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.14 · GeniusLyrics v5.16.21.5'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.15 · GeniusLyrics v5.16.21.7'
   }
   translateOptionsMenu(win)
   updatePreview()
@@ -2976,6 +2994,7 @@ if (document.location.hostname === 'genius.com') {
     onResize,
     iframeLoadedCallback2: onLyricsFrameReady,
     onLyricsReady,
+    getPictureInPictureAppearance,
     onLyricsBarReady: styleLyricsBar,
     onOptionsReady: styleOptionsMenu,
     config: [
