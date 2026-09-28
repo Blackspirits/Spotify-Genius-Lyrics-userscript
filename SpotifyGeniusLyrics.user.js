@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.10
+// @version         23.6.21.11
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -65,6 +65,7 @@ GM.getValue('ui_language', 'auto').then(function (value) {
   uiLanguagePreference = value === 'auto' || Object.hasOwn(UI_TEXT, value) ? value : 'auto'
   document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
   document.querySelectorAll('.genius-search-container').forEach(translateSearch)
+  translateGeniusHeader(syncedLines.document)
 })
 GM.getValue('synced_line_highlight', true).then(value => {
   syncedLineHighlightEnabled = value !== false
@@ -822,6 +823,7 @@ const UI_TEXT = {
     menuTitle: 'Options',
     support: 'Report a problem',
     lyricsGroup: 'Lyrics',
+    moreCredits: 'more',
     advanced: 'Advanced',
     hide: 'Hide',
     options: 'Options',
@@ -879,6 +881,7 @@ const UI_TEXT = {
     menuTitle: 'Opções das letras',
     support: 'Reportar um problema',
     lyricsGroup: 'Letras',
+    moreCredits: 'mais',
     advanced: 'Avançado',
     hide: 'Ocultar',
     options: 'Opções',
@@ -936,6 +939,7 @@ const UI_TEXT = {
     menuTitle: 'Opções das letras',
     support: 'Informar um problema',
     lyricsGroup: 'Letras',
+    moreCredits: 'mais',
     advanced: 'Avançado',
     hide: 'Ocultar',
     options: 'Opções',
@@ -993,6 +997,7 @@ const UI_TEXT = {
     menuTitle: 'Opciones de letras',
     support: 'Informar de un problema',
     lyricsGroup: 'Letras',
+    moreCredits: 'más',
     advanced: 'Avanzado',
     hide: 'Ocultar',
     options: 'Opciones',
@@ -1050,6 +1055,7 @@ const UI_TEXT = {
     menuTitle: 'Options des paroles',
     support: 'Signaler un problème',
     lyricsGroup: 'Paroles',
+    moreCredits: 'de plus',
     advanced: 'Avancé',
     hide: 'Masquer',
     options: 'Options',
@@ -1107,6 +1113,7 @@ const UI_TEXT = {
     menuTitle: 'Liedtext-Optionen',
     support: 'Problem melden',
     lyricsGroup: 'Liedtext',
+    moreCredits: 'mehr',
     advanced: 'Erweitert',
     hide: 'Ausblenden',
     options: 'Optionen',
@@ -1164,6 +1171,7 @@ const UI_TEXT = {
     menuTitle: 'Opzioni dei testi',
     support: 'Segnala un problema',
     lyricsGroup: 'Testi',
+    moreCredits: 'in più',
     advanced: 'Avanzate',
     hide: 'Nascondi',
     options: 'Opzioni',
@@ -1229,6 +1237,19 @@ function detectUiLanguage () {
 function uiText () {
   const language = uiLanguagePreference === 'auto' ? detectUiLanguage() : uiLanguagePreference
   return UI_TEXT[language] || UI_TEXT.en
+}
+
+function translateGeniusHeader (iframeDocument) {
+  const header = iframeDocument?.querySelector?.('.myheader')
+  if (!header) return
+  for (const button of header.querySelectorAll('button[class*="List__More-"]')) {
+    if (button.childElementCount) continue
+    const count = button.dataset.geniusMoreCount || /^([0-9]+)\s*more$/i.exec(button.textContent.trim())?.[1]
+    if (!count) continue
+    button.dataset.geniusMoreCount = count
+    const translated = `${count} ${uiText().moreCredits}`
+    if (button.textContent !== translated) button.textContent = translated
+  }
 }
 
 function styleLyricsBar (bar) {
@@ -1373,6 +1394,7 @@ function styleOptionsMenu (win) {
     translateOptionsMenu(win)
     document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
     document.querySelectorAll('.genius-search-container').forEach(translateSearch)
+    translateGeniusHeader(syncedLines.document)
   })
 
   const addRows = (parent, rows) => rows.filter(Boolean).forEach(element => parent.appendChild(element))
@@ -1414,7 +1436,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.10 · GeniusLyrics v5.16.21.5'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.11 · GeniusLyrics v5.16.21.5'
   }
   translateOptionsMenu(win)
 }
@@ -1870,6 +1892,13 @@ function onLyricsFrameReady (details) {
   styleCompactLyricsFrame(details)
   clearSyncedHighlight()
   syncedLines.document = details.document
+  translateGeniusHeader(details.document)
+  const header = details.document.querySelector('.myheader')
+  const FrameMutationObserver = details.document.defaultView?.MutationObserver
+  if (header && FrameMutationObserver) {
+    const observer = new FrameMutationObserver(() => translateGeniusHeader(details.document))
+    observer.observe(header, { childList: true, subtree: true, characterData: true })
+  }
   syncedLines.requestedKey = ''
   syncedLines.matches = []
   const style = details.document.createElement('style')
