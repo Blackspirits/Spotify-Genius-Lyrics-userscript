@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.15
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/4d526c274710ed14bfa3e53b3fa80ad9270ca1e9/GeniusLyrics.js
+// @version         23.6.21.17
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/5323e9bf7892a765fb2d51352d61b33e7d7e10b0/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -96,6 +96,29 @@ function getPictureInPictureAppearance () {
     fontFamily: LYRICS_FONTS[appearance.fontFamily] || 'system-ui, sans-serif',
     fontSize: genius?.option?.fontSize || 0
   }
+}
+
+const PICTURE_IN_PICTURE_LABELS = {
+  en: ['Resume', 'From here'],
+  'pt-PT': ['Retomar', 'A partir daqui'],
+  'pt-BR': ['Retomar', 'A partir daqui'],
+  es: ['Reanudar', 'Desde aquí'],
+  fr: ['Reprendre', 'À partir d’ici'],
+  de: ['Fortsetzen', 'Ab hier'],
+  it: ['Riprendi', 'Da qui'],
+  'zh-CN': ['继续', '从这里开始'],
+  hi: ['फिर शुरू करें', 'यहाँ से'],
+  ar: ['استئناف', 'من هنا'],
+  bn: ['আবার চালু করুন', 'এখান থেকে'],
+  ru: ['Продолжить', 'Отсюда'],
+  ja: ['再開', 'ここから'],
+  ko: ['다시 시작', '여기부터'],
+  id: ['Lanjutkan', 'Dari sini']
+}
+
+function getPictureInPictureLabels () {
+  const [resume, fromHere] = PICTURE_IN_PICTURE_LABELS[currentUiLanguage()] || PICTURE_IN_PICTURE_LABELS.en
+  return { resume, fromHere }
 }
 
 function refreshPictureInPictureAppearance () {
@@ -568,6 +591,17 @@ function resetSyncedLines () {
   syncedLines.requestedKey = ''
   syncedLines.matches = []
   updateSyncedLineStatus()
+  refreshPictureInPictureAppearance()
+}
+
+function getPictureInPictureActiveLine () {
+  const match = syncedLines.matches.find(item => item.element === syncedLines.active)
+  if (!match || !syncedLines.document) return null
+  const text = match.element.textContent.trim()
+  const normalized = normalizeLyric(text)
+  const occurrence = lyricGroups(syncedLines.document).slice(0, match.index)
+    .filter(group => normalizeLyric(group.text) === normalized).length
+  return { text, occurrence }
 }
 
 function onLyricsReady () {
@@ -676,6 +710,7 @@ function highlightSyncedLine (current) {
         scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
       }
     }
+    refreshPictureInPictureAppearance()
   }
   return true
 }
@@ -2138,6 +2173,7 @@ function styleOptionsMenu (win) {
     document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
     document.querySelectorAll('.genius-search-container').forEach(translateSearch)
     translateGeniusHeader(syncedLines.document)
+    refreshPictureInPictureAppearance()
     updatePreview()
   })
 
@@ -2301,7 +2337,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.15 · GeniusLyrics v5.16.21.7'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.17 · GeniusLyrics v5.16.21.9'
   }
   translateOptionsMenu(win)
   updatePreview()
@@ -2995,6 +3031,8 @@ if (document.location.hostname === 'genius.com') {
     iframeLoadedCallback2: onLyricsFrameReady,
     onLyricsReady,
     getPictureInPictureAppearance,
+    getPictureInPictureActiveLine,
+    getPictureInPictureLabels,
     onLyricsBarReady: styleLyricsBar,
     onOptionsReady: styleOptionsMenu,
     config: [
