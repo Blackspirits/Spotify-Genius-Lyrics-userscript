@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.19
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/5323e9bf7892a765fb2d51352d61b33e7d7e10b0/GeniusLyrics.js
+// @version         23.6.21.20
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/c730267d3f62ac78905b973bdfd4704e3ed19863/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -52,7 +52,7 @@
 'use strict'
 
 const scriptName = 'Spotify Genius Lyrics'
-const scriptVersion = GM.info?.script?.version || '23.6.21.19'
+const scriptVersion = GM.info?.script?.version || '23.6.21.20'
 const isLyricsFrame = window.top !== window && document.location.pathname === '/robots.txt' && document.location.hash?.startsWith('#html:post')
 let genius
 let resizeLeftContainer
@@ -2473,7 +2473,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = `Spotify Genius Lyrics v${scriptVersion} · GeniusLyrics v5.16.21.9`
+    version.textContent = `Spotify Genius Lyrics v${scriptVersion} · GeniusLyrics v5.16.21.10`
   }
   translateOptionsMenu(win)
   updatePreview()
