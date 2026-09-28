@@ -53,6 +53,35 @@ test('matches timed Korean verses in order, including a repeated chorus', () => 
   ])
 })
 
+test('expands repeated LRC timestamps and matches small spelling and ad-lib differences', () => {
+  const vmContext = context()
+  const result = vm.runInContext(`(() => {
+    const timed = parseSyncedLyrics('[00:15.00][01:40.00] We have been creeping\\n[00:19.00][01:44.00] Hold me tight\\n[00:23.00][01:48.00] Here we go (yeah)\\n[00:27.00][01:52.00] Love is true')
+    const lyrics = ['[Chorus]', "We have been creepin'", 'Hold me tight', 'Here we go', 'Love is true',
+      '[Chorus]', "We have been creepin'", 'Hold me tight', 'Here we go', 'Love is true'].map(text => ({ text }))
+    return { timed: timed.map(line => [line.time, line.text]), matches: matchSyncedLines(lyrics, timed).map(line => [line.index, line.time]) }
+  })()`, vmContext)
+  assert.deepEqual(Array.from(result.timed, row => Array.from(row)), [
+    [15, 'We have been creeping'], [19, 'Hold me tight'], [23, 'Here we go (yeah)'], [27, 'Love is true'],
+    [100, 'We have been creeping'], [104, 'Hold me tight'], [108, 'Here we go (yeah)'], [112, 'Love is true']
+  ])
+  assert.deepEqual(Array.from(result.matches, row => Array.from(row)), [
+    [1, 15], [2, 19], [3, 23], [4, 27], [6, 100], [7, 104], [8, 108], [9, 112]
+  ])
+})
+
+test('accepts a remaster label without confusing live or unrelated recordings', () => {
+  const vmContext = context()
+  const chosen = vm.runInContext(`selectSyncedRecord([
+    { trackName: 'Song - Live', artistName: 'Eagles', duration: 200, syncedLyrics: 'live' },
+    { trackName: 'Song - 2006 Remaster', artistName: 'Eagles', duration: 200, syncedLyrics: 'remaster' }
+  ], 'Song', 'Eagles', 200)?.syncedLyrics`, vmContext)
+  assert.equal(chosen, 'remaster')
+  assert.equal(vm.runInContext(`selectSyncedRecord([
+    { trackName: 'Song - Live', artistName: 'Eagles', duration: 200, syncedLyrics: 'live' }
+  ], 'Song', 'Eagles', 200)`, vmContext), null)
+})
+
 test('rejects unrelated lyrics and incorrect recordings despite similar metadata', () => {
   const vmContext = context()
   assert.equal(vm.runInContext(`matchSyncedLines(
@@ -85,6 +114,29 @@ test('requests timed lyrics once per song and identifies the client', async () =
   assert.equal(requests.length, 1)
   assert.match(requests[0].url, /lrclib\.net\/api\/search\?track_name=Say\+Yes&artist_name=Loco/)
   assert.match(requests[0].headers['Lrclib-Client'], /Spotify-Genius-Lyrics/)
+})
+
+test('uses a second LRCLIB search when the field search has no matching recording', async () => {
+  const vmContext = context()
+  const requests = []
+  vmContext.URLSearchParams = URLSearchParams
+  vmContext.GM.xmlHttpRequest = async options => {
+    requests.push(options)
+    return requests.length === 1
+      ? { status: 200, response: [] }
+      : { status: 200, response: [{ trackName: 'Song - 2006 Remaster', artistName: 'Eagles', duration: 200, syncedLyrics: '[00:01.00] Hello' }] }
+  }
+  vm.runInContext(`
+    getSongTitleAndArtist = () => [0, 'Song', ['Eagles']]
+    syncedLines.document = {}
+    applySyncedLines = () => {}
+    requestSyncedLines(200)
+  `, vmContext)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(requests.length, 2)
+  assert.match(requests[1].url, /q=Song\+Eagles/)
+  assert.equal(vm.runInContext('syncedLines.cache.size', vmContext), 1)
+  assert.equal(vm.runInContext('syncedLines.cache.values().next().value.trackName', vmContext), 'Song - 2006 Remaster')
 })
 
 test('provides every translated label and respects automatic or selected language', () => {
@@ -202,7 +254,8 @@ test('the Spotify page adopts its loaded lyrics frame for live settings and sync
   assert.match(styles.find(style => style.id === 'genius-user-appearance').textContent, /#ff0000/)
   vm.runInContext('updateAutoScroll()', vmContext)
   await new Promise(resolve => setImmediate(resolve))
-  assert.equal(requests.length, 1)
+  assert.equal(requests.length, 2)
+  assert.match(requests[1].url, /q=Say\+Yes\+Loco/)
   assert.equal(vm.runInContext('syncedLines.trackKey', vmContext), 'Say Yes\tLoco\t196')
   iframe.contentDocument = { querySelector: () => null }
   vm.runInContext('updateAutoScroll()', vmContext)
@@ -342,6 +395,28 @@ test('reads both Genius lyric layouts and preserves annotated links while highli
   }
 })
 
+test('keeps whitespace between annotation fragments without wrapping whitespace-only nodes', () => {
+  const vmContext = context()
+  const { frame, annotated } = lyricsFrame(true)
+  const span = annotated.childNodes[0]
+  const breakNode = span.childNodes[1]
+  span.childNodes[0].textContent = 'Second'
+  const gap = { nodeType: 3, nodeName: '#text', textContent: ' ', parentNode: null }
+  span.insertBefore(gap, breakNode)
+  span.insertBefore({ nodeType: 3, nodeName: '#text', textContent: 'lyric', parentNode: null }, breakNode)
+  vmContext.frame = frame
+  assert.deepEqual(Array.from(vm.runInContext('lyricGroups(frame).map(line => line.text)', vmContext)), [
+    'First lyric', 'Second lyric', 'Third lyric', 'Fourth lyric'
+  ])
+  vm.runInContext(`
+    syncedLines.document = frame
+    syncedLines.trackKey = 'test'
+    applySyncedLines({ syncedLyrics: '[00:01.00] First lyric\\n[00:02.00] Second lyric\\n[00:03.00] Third lyric\\n[00:04.00] Fourth lyric' }, 'test', frame)
+  `, vmContext)
+  assert.equal(vm.runInContext('syncedLines.matches.length', vmContext), 4)
+  assert.equal(gap.parentNode, span)
+})
+
 test('keeps a stable song key across a one-second duration wobble and retries after rate limiting', async () => {
   const vmContext = context()
   let calls = 0
@@ -364,7 +439,7 @@ test('keeps a stable song key across a one-second duration wobble and retries af
   vm.runInContext('syncedLines.blockedUntil = 0; syncedLines.nextRequestAt = 0; requestSyncedLines(195)', vmContext)
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(vm.runInContext('syncedLines.trackKey', vmContext), firstKey)
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
 })
 
 test('centers the active line without counting the iframe scroll position twice', () => {
@@ -391,4 +466,51 @@ test('centers the active line without counting the iframe scroll position twice'
     highlightSyncedLine(10)
   `, vmContext)
   assert.equal(top, 840)
+})
+
+test('interpolates playback without advancing while Media Session reports a pause', () => {
+  const vmContext = context()
+  vmContext.fakeNow = 1000
+  vm.runInContext(`
+    Date = { now: () => fakeNow }
+    navigator.mediaSession = { playbackState: 'playing' }
+    lastPlaybackTime = 10
+    notePlaybackTime(10)
+    fakeNow = 2000
+    lastPlaybackTime = 11
+    notePlaybackTime(11)
+    fakeNow = 2250
+  `, vmContext)
+  assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 11.25)
+  vm.runInContext("navigator.mediaSession.playbackState = 'paused'", vmContext)
+  assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 11)
+})
+
+test('resumes centering the active line after four seconds without another lyric change', () => {
+  const vmContext = context()
+  let scrolls = 0
+  vmContext.scrollFrame = {
+    hidden: false,
+    scrollingElement: { scrollTop: 900, clientHeight: 400, scrollTo: () => { scrolls++ } }
+  }
+  vmContext.match = {
+    time: 5,
+    index: 0,
+    text: 'First lyric',
+    elements: [{ classList: { add: () => {}, remove: () => {} }, getBoundingClientRect: () => ({ top: 120 }) }]
+  }
+  vmContext.fakeNow = 1000
+  vm.runInContext(`
+    Date = { now: () => fakeNow }
+    syncedLines.document = scrollFrame
+    syncedLines.matches = [match]
+    syncedLines.userScrollUntil = 5000
+    genius.f.isScrollLyricsEnabled = () => true
+    highlightSyncedLine(10)
+  `, vmContext)
+  assert.equal(scrolls, 0)
+  vm.runInContext('fakeNow = 5000; highlightSyncedLine(10)', vmContext)
+  assert.equal(scrolls, 1)
+  vm.runInContext('highlightSyncedLine(10)', vmContext)
+  assert.equal(scrolls, 1)
 })
