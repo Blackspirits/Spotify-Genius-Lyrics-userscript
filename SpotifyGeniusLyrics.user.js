@@ -13,8 +13,8 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/cvzi/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.9
-// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/681b6caad901ff0982c83abb6bf33b8f8f422a7e/GeniusLyrics.js
+// @version         23.6.21.10
+// @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/d143fe8fc4e2939a5d4d9685ec242916f4b810d1/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
 // @grant           GM.setValue
@@ -870,7 +870,7 @@ const UI_TEXT = {
     debugOff: 'Debug is off',
     powered: 'Powered by ',
     contributors: ' and contributors.',
-    modifications: '2026 modifications and maintenance: ',
+    modifications: 'Fixes and improvements (2026): ',
     license: 'Licensed under the GNU General Public License v3.0'
   },
   'pt-PT': {
@@ -927,7 +927,7 @@ const UI_TEXT = {
     debugOff: 'Diagnóstico inativo',
     powered: 'Criado com ',
     contributors: ' e colaboradores.',
-    modifications: 'Alterações e manutenção em 2026: ',
+    modifications: 'Correções e melhorias (2026): ',
     license: 'Licenciado sob a GNU General Public License v3.0'
   },
   'pt-BR': {
@@ -984,7 +984,7 @@ const UI_TEXT = {
     debugOff: 'Diagnóstico desativado',
     powered: 'Criado com ',
     contributors: ' e colaboradores.',
-    modifications: 'Modificações e manutenção em 2026: ',
+    modifications: 'Correções e melhorias (2026): ',
     license: 'Licenciado sob a GNU General Public License v3.0'
   },
   es: {
@@ -1041,7 +1041,7 @@ const UI_TEXT = {
     debugOff: 'Diagnóstico desactivado',
     powered: 'Creado con ',
     contributors: ' y colaboradores.',
-    modifications: 'Modificaciones y mantenimiento en 2026: ',
+    modifications: 'Correcciones y mejoras (2026): ',
     license: 'Bajo la Licencia Pública General GNU v3.0'
   },
   fr: {
@@ -1098,7 +1098,7 @@ const UI_TEXT = {
     debugOff: 'Diagnostic désactivé',
     powered: 'Avec ',
     contributors: ' et contributeurs.',
-    modifications: 'Modifications et maintenance en 2026 : ',
+    modifications: 'Corrections et améliorations (2026) : ',
     license: 'Sous licence publique générale GNU v3.0'
   },
   de: {
@@ -1155,7 +1155,7 @@ const UI_TEXT = {
     debugOff: 'Diagnose deaktiviert',
     powered: 'Mit ',
     contributors: ' und Mitwirkenden.',
-    modifications: 'Änderungen und Pflege 2026: ',
+    modifications: 'Korrekturen und Verbesserungen (2026): ',
     license: 'Lizenziert unter der GNU General Public License v3.0'
   },
   it: {
@@ -1212,7 +1212,7 @@ const UI_TEXT = {
     debugOff: 'Diagnostica disattivata',
     powered: 'Basato su ',
     contributors: ' e collaboratori.',
-    modifications: 'Modifiche e manutenzione nel 2026: ',
+    modifications: 'Correzioni e miglioramenti (2026): ',
     license: 'Con licenza GNU General Public License v3.0'
   }
 }
@@ -1414,7 +1414,7 @@ function styleOptionsMenu (win) {
   const version = win.lastElementChild?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
-    version.textContent = 'Spotify Genius Lyrics v23.6.21.9 · GeniusLyrics v5.16.21.4'
+    version.textContent = 'Spotify Genius Lyrics v23.6.21.10 · GeniusLyrics v5.16.21.5'
   }
   translateOptionsMenu(win)
 }
