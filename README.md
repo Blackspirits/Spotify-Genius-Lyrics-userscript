@@ -3,7 +3,7 @@ A userscript or greasemonkey script that shows lyrics from [genius.com](https://
 
 ## BlackSpirits fork: line highlighting and languages
 
-The interface supports English, Português (Portugal), Português (Brasil), Español, Français, Deutsch and Italiano. Choose a language in **Options → Language**, or keep **Automatic** to follow the Spotify page language.
+The interface supports 15 languages: English, Português (Portugal), Português (Brasil), Español, Français, Deutsch, Italiano, 简体中文, हिन्दी, العربية, বাংলা, Русский, 日本語, 한국어 and Bahasa Indonesia. Choose a language in **Options → Language**, or keep **Automatic** to follow the Spotify page language.
 
 **Highlight current line** is enabled by default and can be turned off in **Options → Lyrics**. For each playing song, the script looks up timed lines from [LRCLIB](https://lrclib.net/docs) using its title and artist. It highlights a line in the Genius text only when title, artist, duration and enough lines match. If no reliable match is available, the existing Genius lyrics and automatic scrolling continue unchanged. Timing is by line, not by word. The lookup sends the current title and artist to LRCLIB; results are cached in memory for the browser session.
 
