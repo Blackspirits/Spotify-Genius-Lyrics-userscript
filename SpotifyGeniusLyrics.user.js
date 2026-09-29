@@ -13,7 +13,7 @@
 // @copyright       2020, cuzi (https://github.com/cvzi)
 // @supportURL      https://github.com/Blackspirits/Spotify-Genius-Lyrics-userscript/issues
 // @icon            https://avatars.githubusercontent.com/u/251374?s=200&v=4
-// @version         23.6.21.20
+// @version         23.6.21.25
 // @require         https://raw.githubusercontent.com/Blackspirits/genius-lyrics-userscript/c730267d3f62ac78905b973bdfd4704e3ed19863/GeniusLyrics.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js
 // @grant           GM.xmlHttpRequest
@@ -52,7 +52,7 @@
 'use strict'
 
 const scriptName = 'Spotify Genius Lyrics'
-const scriptVersion = GM.info?.script?.version || '23.6.21.20'
+const scriptVersion = GM.info?.script?.version || '23.6.21.25'
 const isLyricsFrame = window.top !== window && document.location.pathname === '/robots.txt' && document.location.hash?.startsWith('#html:post')
 let genius
 let resizeLeftContainer
@@ -524,7 +524,9 @@ function normalizeLyric (text) {
 }
 
 function normalizeTrackTitle (text) {
-  return normalizeLyric(String(text || '').replace(/\s*[-–—]\s*(?:\d{4}\s*)?remaster(?:ed)?(?:\s*\d{4})?\s*$/i, ''))
+  return normalizeLyric(String(text || '')
+    .replace(/\s*[-–—]\s*(?:\d{4}\s*)?remaster(?:ed)?(?:\s*\d{4})?\s*$/i, '')
+    .replace(/\s*[([]\s*(?:feat\.?|ft\.?|featuring)\s+[^)\]]*[)\]]\s*$/i, ''))
 }
 
 function lyricSimilarity (a, b) {
@@ -571,26 +573,111 @@ function parseSyncedLyrics (lrc) {
   return lines.sort((a, b) => a.time - b.time)
 }
 
-function selectSyncedRecord (results, title, artist, duration) {
+const HANGUL_L = ['g', 'kk', 'n', 'd', 'tt', 'r', 'm', 'b', 'pp', 's', 'ss', '', 'j', 'jj', 'ch', 'k', 't', 'p', 'h']
+const HANGUL_V = ['a', 'ae', 'ya', 'yae', 'eo', 'e', 'yeo', 'ye', 'o', 'wa', 'wae', 'oe', 'yo', 'u', 'wo', 'we', 'wi', 'yu', 'eu', 'ui', 'i']
+const HANGUL_T = ['', 'k', 'k', 'k', 'n', 'n', 'n', 't', 'l', 'k', 'm', 'l', 'l', 'l', 'p', 'l', 'm', 'p', 'p', 't', 't', 'ng', 't', 't', 'k', 't', 'p', 't']
+const KANA = {
+  きゃ: 'kya', きゅ: 'kyu', きょ: 'kyo', しゃ: 'sha', しゅ: 'shu', しょ: 'sho', ちゃ: 'cha', ちゅ: 'chu', ちょ: 'cho',
+  にゃ: 'nya', にゅ: 'nyu', にょ: 'nyo', ひゃ: 'hya', ひゅ: 'hyu', ひょ: 'hyo', みゃ: 'mya', みゅ: 'myu', みょ: 'myo',
+  りゃ: 'rya', りゅ: 'ryu', りょ: 'ryo', ぎゃ: 'gya', ぎゅ: 'gyu', ぎょ: 'gyo', じゃ: 'ja', じゅ: 'ju', じょ: 'jo',
+  びゃ: 'bya', びゅ: 'byu', びょ: 'byo', ぴゃ: 'pya', ぴゅ: 'pyu', ぴょ: 'pyo', ふぁ: 'fa', ふぃ: 'fi', ふぇ: 'fe', ふぉ: 'fo',
+  てぃ: 'ti', でぃ: 'di', うぃ: 'wi', うぇ: 'we', ゔぁ: 'va',
+  あ: 'a', い: 'i', う: 'u', え: 'e', お: 'o', か: 'ka', き: 'ki', く: 'ku', け: 'ke', こ: 'ko',
+  さ: 'sa', し: 'shi', す: 'su', せ: 'se', そ: 'so', た: 'ta', ち: 'chi', つ: 'tsu', て: 'te', と: 'to',
+  な: 'na', に: 'ni', ぬ: 'nu', ね: 'ne', の: 'no', は: 'ha', ひ: 'hi', ふ: 'fu', へ: 'he', ほ: 'ho',
+  ま: 'ma', み: 'mi', む: 'mu', め: 'me', も: 'mo', や: 'ya', ゆ: 'yu', よ: 'yo',
+  ら: 'ra', り: 'ri', る: 'ru', れ: 're', ろ: 'ro', わ: 'wa', を: 'o', ん: 'n',
+  が: 'ga', ぎ: 'gi', ぐ: 'gu', げ: 'ge', ご: 'go', ざ: 'za', じ: 'ji', ず: 'zu', ぜ: 'ze', ぞ: 'zo',
+  だ: 'da', ぢ: 'ji', づ: 'zu', で: 'de', ど: 'do', ば: 'ba', び: 'bi', ぶ: 'bu', べ: 'be', ぼ: 'bo',
+  ぱ: 'pa', ぴ: 'pi', ぷ: 'pu', ぺ: 'pe', ぽ: 'po', ゔ: 'vu',
+  ぁ: 'a', ぃ: 'i', ぅ: 'u', ぇ: 'e', ぉ: 'o', ゃ: 'ya', ゅ: 'yu', ょ: 'yo', ゎ: 'wa'
+}
+
+// Converte Hangul e kana para latim. Kanji e hanzi ficam como estão (sem dicionário não há leitura fiável).
+function romanizeLyric (text) {
+  const hira = [...String(text || '')].map(ch => {
+    const c = ch.codePointAt(0)
+    return c >= 0x30A1 && c <= 0x30F6 ? String.fromCodePoint(c - 0x60) : ch // katakana → hiragana
+  }).join('')
+  let out = ''
+  for (let i = 0; i < hira.length; i++) {
+    const ch = hira[i]
+    const c = ch.codePointAt(0)
+    if (c >= 0xAC00 && c <= 0xD7A3) {
+      const s = c - 0xAC00
+      out += HANGUL_L[Math.floor(s / 588)] + HANGUL_V[Math.floor((s % 588) / 28)] + HANGUL_T[s % 28]
+    } else if (ch === 'っ') {
+      const next = KANA[hira.slice(i + 1, i + 3)] || KANA[hira[i + 1]] || ''
+      out += next[0] || ''
+    } else if (ch === 'ー') {
+      out += out.slice(-1)
+    } else if (KANA[hira.slice(i, i + 2)]) {
+      out += KANA[hira.slice(i, i + 2)]
+      i++
+    } else {
+      out += KANA[ch] ?? ch
+    }
+  }
+  return out
+}
+
+const ROMANIZABLE_SCRIPT = /[぀-ヿ가-힣]/
+const KANJI = /[㐀-鿿]/
+
+function romanizedSimilarity (left, right) {
+  if (ROMANIZABLE_SCRIPT.test(left) === ROMANIZABLE_SCRIPT.test(right) || KANJI.test(left) || KANJI.test(right)) return 0
+  const a = normalizeLyric(romanizeLyric(left)).replace(/[^a-z0-9]/g, '')
+  const b = normalizeLyric(romanizeLyric(right)).replace(/[^a-z0-9]/g, '')
+  if (Math.min(a.length, b.length) < 5) return 0
+  return lyricSimilarity(a, b)
+}
+
+function geniusArtistAliases (artist, iframeDocument) {
+  const aliases = new Set([normalizeLyric(artist)])
+  for (const link of iframeDocument?.querySelectorAll?.('.myheader a[href*="genius.com/artists/"]') || []) {
+    const name = link.textContent || ''
+    if (normalizeLyric(name.replace(/\([^)]*\)/g, '')) !== normalizeLyric(artist)) continue
+    for (const match of name.matchAll(/\(([^)]+)\)/g)) aliases.add(normalizeLyric(match[1]))
+  }
+  return aliases
+}
+
+function selectSyncedRecord (results, title, artist, duration, aliases = new Set([normalizeLyric(artist)])) {
   if (!Array.isArray(results) || normalizeLyric(artist).length < 2) return null
-  return results.find(item => item &&
-    !item.instrumental &&
-    normalizeTrackTitle(item.trackName) === normalizeTrackTitle(title) &&
-    normalizeLyric(item.artistName).includes(normalizeLyric(artist)) &&
-    Math.abs(Number(item.duration) - duration) <= 2 &&
-    typeof item.syncedLyrics === 'string'
-  ) || null
+  const expectedTitle = normalizeTrackTitle(title)
+  let best = null
+  let bestScore = -1
+  for (const item of results) {
+    if (!item || item.instrumental || typeof item.syncedLyrics !== 'string' || !item.syncedLyrics.trim()) continue
+    const difference = Math.abs(Number(item.duration) - duration)
+    if (!(difference <= 2)) continue
+    const actualTitle = normalizeTrackTitle(item.trackName)
+    const titleScore = actualTitle === expectedTitle ? 1 : romanizedSimilarity(item.trackName, title)
+    if (titleScore < 0.88) continue
+    const actualArtist = normalizeLyric(item.artistName)
+    const artistScore = [...aliases].some(alias => alias.length >= 2 && actualArtist.includes(alias))
+      ? 1
+      : romanizedSimilarity(item.artistName, artist)
+    if (artistScore < 0.86) continue
+    const score = titleScore * 0.55 + artistScore * 0.35 + (2 - difference) * 0.05
+    if (score > bestScore) {
+      best = item
+      bestScore = score
+    }
+  }
+  return best
 }
 
 function matchSyncedLines (lyrics, timed) {
   const normalizedLine = text => ({
     normalized: normalizeLyric(text),
-    withoutAdlibs: normalizeLyric(text.replace(/\([^)]*\)/g, ''))
+    withoutAdlibs: normalizeLyric(text.replace(/\([^)]*\)/g, '')),
+    text: text.replace(/\([^)]*\)/g, '')
   })
   const visible = lyrics.map((line, index) => ({ index, ...normalizedLine(line.text) }))
-    .filter(line => line.normalized.length >= 3 && !/^\[[^\]]+\]$/.test(lyrics[line.index].text.trim()))
+    .filter(line => [...line.normalized].length >= (ROMANIZABLE_SCRIPT.test(line.text) ? 2 : 3) && !/^\[[^\]]+\]$/.test(lyrics[line.index].text.trim()))
   const sung = timed.map(line => ({ ...line, ...normalizedLine(line.text) }))
-    .filter(line => line.normalized.length >= 3)
+    .filter(line => [...line.normalized].length >= (ROMANIZABLE_SCRIPT.test(line.text) ? 2 : 3))
   let cursor = 0
   const matches = []
   for (const line of sung) {
@@ -600,7 +687,8 @@ function matchSyncedLines (lyrics, timed) {
       const item = visible[i]
       const similarity = Math.max(
         lyricSimilarity(item.normalized, line.normalized),
-        lyricSimilarity(item.withoutAdlibs, line.withoutAdlibs)
+        lyricSimilarity(item.withoutAdlibs, line.withoutAdlibs),
+        romanizedSimilarity(item.text, line.text)
       )
       if (similarity > score) {
         best = i
@@ -731,7 +819,11 @@ function applySyncedLines (record, key, iframeDocument) {
 
 function estimatedPlaybackTime () {
   if (!playbackClock.advancing || (typeof navigator !== 'undefined' && navigator.mediaSession?.playbackState === 'paused')) return lastPlaybackTime
-  return playbackClock.shown + Math.min((Date.now() - playbackClock.changedAt) / 1000, 0.75)
+  const elapsed = (Date.now() - playbackClock.changedAt) / 1000
+  if (document.hidden && navigator.mediaSession?.playbackState === 'playing') {
+    return Math.min(playbackClock.shown + elapsed, syncedLines.trackDuration || Infinity)
+  }
+  return playbackClock.shown + Math.min(elapsed, 0.75)
 }
 
 function notePlaybackTime (current) {
@@ -769,6 +861,7 @@ function requestSyncedLines (duration) {
   syncedLines.requestedKey = key
   syncedLines.nextRequestAt = Date.now() + 500
   const iframeDocument = syncedLines.document
+  const aliases = geniusArtistAliases(artist, iframeDocument)
   const params = new URLSearchParams({ track_name: title, artist_name: artist })
   Promise.resolve(GM.xmlHttpRequest({
     method: 'GET',
@@ -785,7 +878,7 @@ function requestSyncedLines (duration) {
     }
     if (response.status !== 200) throw new Error(`LRCLIB ${response.status}`)
     const results = typeof response.response === 'string' ? JSON.parse(response.response) : response.response
-    let record = selectSyncedRecord(results, title, artist, duration)
+    let record = selectSyncedRecord(results, title, artist, duration, aliases)
     if (!record) {
       const loose = await GM.xmlHttpRequest({
         method: 'GET',
@@ -802,7 +895,7 @@ function requestSyncedLines (duration) {
       }
       if (loose.status !== 200) throw new Error(`LRCLIB ${loose.status}`)
       const candidates = typeof loose.response === 'string' ? JSON.parse(loose.response) : loose.response
-      record = selectSyncedRecord(candidates, title, artist, duration)
+      record = selectSyncedRecord(candidates, title, artist, duration, aliases)
     }
     syncedLines.cache.set(key, record || null)
     if (syncedLines.cache.size > 20) syncedLines.cache.delete(syncedLines.cache.keys().next().value)
@@ -2137,7 +2230,8 @@ function applyLyricsAppearance (iframeDocument) {
     const red = parseInt(appearance.highlightColor.slice(1, 3), 16)
     const green = parseInt(appearance.highlightColor.slice(3, 5), 16)
     const blue = parseInt(appearance.highlightColor.slice(5, 7), 16)
-    rules.push(`.genius-synced-active { border-left-color: ${appearance.highlightColor} !important; background: rgba(${red}, ${green}, ${blue}, .16) !important; }`)
+    rules.push(`#resumeAutoScrollButtonContainer { --genius-accent: ${appearance.highlightColor}; }`)
+    rules.push(`.genius-synced-active { border-left-color: ${appearance.highlightColor} !important; background: rgba(${red}, ${green}, ${blue}, .2) !important; box-shadow: 0 0 0 3px rgba(${red}, ${green}, ${blue}, .2) !important; }`)
   }
   style.textContent = rules.join('\n')
 }
@@ -2178,8 +2272,9 @@ function translateOptionsMenu (win) {
     if (text) text.textContent = value
   }
   const hint = (id, value) => {
-    const text = [...(row(id)?.childNodes || [])].find(node => node.nodeType === 3)
-    if (text) text.textContent = value
+    const small = row(id)?.querySelector(':scope > .genius-hint')
+    if (small) small.textContent = value
+    else selectLabel(id, value)
   }
   const options = (id, names) => {
     for (const option of win.querySelectorAll(`#${id} option`)) {
@@ -2205,7 +2300,7 @@ function translateOptionsMenu (win) {
     const labels = firefox.querySelectorAll('label')
     if (labels[0]) labels[0].textContent = t.firefoxSize
     if (labels[1]) labels[1].textContent = t.firefoxFont
-    const firefoxHint = [...firefox.childNodes].find(node => node.nodeType === 3 && hasTranslation('firefoxHint', node.textContent))
+    const firefoxHint = firefox.querySelector(':scope > .genius-hint') || [...firefox.childNodes].find(node => node.nodeType === 3 && hasTranslation('firefoxHint', node.textContent))
     if (firefoxHint) firefoxHint.textContent = t.firefoxHint
   }
   selectLabel('selectTheme748', t.theme)
@@ -2254,7 +2349,7 @@ function translateOptionsMenu (win) {
   }
   const summary = win.querySelector('.genius-options-advanced summary')
   if (summary) summary.textContent = t.advanced
-  const footer = win.lastElementChild?.querySelector('p')
+  const footer = (win.querySelector('.genius-options-footer') || win.lastElementChild)?.querySelector('p')
   for (const text of footer?.childNodes || []) {
     if (text.nodeType !== 3) continue
     if (hasTranslation('powered', text.textContent)) text.textContent = t.powered
@@ -2283,6 +2378,25 @@ function styleOptionsMenu (win) {
   const close = win.querySelector('#myconfigwin39457845_close_button')
   const actions = close?.parentElement
   if (!autoShow || !actions) return
+  actions.classList.add('genius-options-actions')
+  const footer = win.lastElementChild !== actions ? win.lastElementChild : null
+  if (footer) {
+    footer.classList.add('genius-options-footer')
+    win.insertBefore(footer, actions)
+  }
+  actions.querySelectorAll('button').forEach(button => button.style.removeProperty('float'))
+  for (const optionRow of [autoShow, pictureInPicture, firefoxPictureInPicture]) {
+    let afterBreak = false
+    for (const node of [...(optionRow?.childNodes || [])]) {
+      if (node.nodeName === 'BR') afterBreak = true
+      else if (afterBreak && node.nodeType === 3 && node.textContent.trim()) {
+        const small = document.createElement('small')
+        small.className = 'genius-hint'
+        node.replaceWith(small)
+        small.appendChild(node)
+      }
+    }
+  }
 
   const languageRow = win.insertBefore(document.createElement('div'), autoShow)
   languageRow.className = 'genius-language-picker'
@@ -2309,6 +2423,7 @@ function styleOptionsMenu (win) {
     document.querySelectorAll('.lyricsnavbar').forEach(styleLyricsBar)
     document.querySelectorAll('.genius-search-container').forEach(translateSearch)
     translateGeniusHeader(syncedLines.document)
+    labelScrollButtons(syncedLines.document)
     refreshPictureInPictureAppearance()
     updatePreview()
   })
@@ -2401,7 +2516,8 @@ function styleOptionsMenu (win) {
     preview.style.color = appearance.textColor || (themeIsLight ? '#202020' : '#e5e5e5')
     preview.style.backgroundColor = appearance.backgroundColor || (themeIsLight ? '#ffffff' : '#151515')
     previewActive.style.borderLeft = `3px solid ${accent}`
-    previewActive.style.backgroundColor = `rgba(${red}, ${green}, ${blue}, .16)`
+    previewActive.style.backgroundColor = `rgba(${red}, ${green}, ${blue}, .2)`
+    previewActive.style.boxShadow = `0 0 0 3px rgba(${red}, ${green}, ${blue}, .2)`
   }
   fontSizeInput?.addEventListener('input', () => {
     applyLiveFontSize(syncedLines.document, fontSizeInput.value)
@@ -2470,7 +2586,7 @@ function styleOptionsMenu (win) {
       observer.observe(debug, { childList: true })
     })
   }
-  const version = win.lastElementChild?.appendChild(document.createElement('small'))
+  const version = win.querySelector('.genius-options-footer')?.appendChild(document.createElement('small'))
   if (version) {
     version.className = 'genius-options-version'
     version.textContent = `Spotify Genius Lyrics v${scriptVersion} · GeniusLyrics v5.16.21.10`
@@ -2528,55 +2644,92 @@ function addCss () {
   }
 
   #myoverlay7658438 {
-    background: #000b;
+    background: #000a;
+    backdrop-filter: blur(6px);
   }
   #myconfigwin39457845 {
+    --g-bg: #121212;
+    --g-surface: #1e1e1e;
+    --g-surface-2: #2a2a2a;
+    --g-line: #ffffff14;
+    --g-text: #f5f5f5;
+    --g-muted: #a7a7a7;
+    --g-accent: #1ed760;
     box-sizing: border-box;
-    width: min(600px, calc(100vw - 32px));
+    width: min(460px, calc(100vw - 24px));
     max-width: none;
-    max-height: calc(100vh - 32px);
+    max-height: min(720px, calc(100vh - 24px));
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    padding: 22px;
-    border: 1px solid #ffffff30;
-    border-radius: 14px;
-    background: #1c1c1c;
-    color: #f5f5f5;
-    box-shadow: 0 20px 60px #0009;
-    font-size: 14px;
-    line-height: 1.5;
-    scrollbar-color: #696969 #1c1c1c;
+    padding: 0 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--g-line);
+    border-radius: 16px;
+    background: var(--g-bg);
+    color: var(--g-text);
+    box-shadow: 0 24px 64px #000c;
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: #555 transparent;
   }
   #myconfigwin39457845 h1 {
-    padding: 0;
-    margin: 0 0 8px;
-    font-size: 24px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0 -16px;
+    padding: 14px 16px 10px;
+    background: color-mix(in srgb, var(--g-bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -.01em;
   }
   #myconfigwin39457845 > a:link,
   #myconfigwin39457845 > a:visited {
-    display: block;
-    margin-bottom: 16px;
-    color: #b3eac6;
-    font-size: 12px;
-    overflow-wrap: anywhere;
+    display: inline-block;
+    margin: 0 0 6px;
+    color: var(--g-muted);
+    font-size: 11px;
+    text-decoration: none;
   }
-  #myconfigwin39457845 > a:hover {
-    color: #d4f8df;
-    font-size: 12px;
-  }
-  #myconfigwin39457845 > div {
+  #myconfigwin39457845 > a:hover { color: var(--g-accent); text-decoration: underline; }
+
+  /* Linhas: etiqueta à esquerda, controlo à direita */
+  #myconfigwin39457845 :is(.genius-options-group, .genius-options-advanced) > div,
+  #myconfigwin39457845 > .genius-language-picker {
     box-sizing: border-box;
-    margin: 8px 0;
-    padding: 12px 14px;
-    border: 1px solid #ffffff18;
-    border-radius: 8px;
-    background: #262626;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 4px;
+    margin: 0;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 0;
+    background: var(--g-surface);
   }
+  #myconfigwin39457845 > .genius-language-picker { margin: 4px 0 0; border-radius: 10px; }
+  #myconfigwin39457845 :is(.genius-options-group, .genius-options-advanced) > div + div { border-top: 1px solid var(--g-line); }
+  #myconfigwin39457845 :is(.genius-options-group, .genius-options-advanced) > :is(h2, summary) + div { border-radius: 10px 10px 0 0; }
+  #myconfigwin39457845 :is(.genius-options-group, .genius-options-advanced) > div:last-child { border-radius: 0 0 10px 10px; }
+  #myconfigwin39457845 :is(.genius-options-group, .genius-options-advanced) > :is(h2, summary) + div:last-child { border-radius: 10px; }
+  #myconfigwin39457845 div > br { display: none; }
+  #myconfigwin39457845 div:has(> input[type=checkbox]) > input[type=checkbox] { grid-column: 2; grid-row: 1; }
+  #myconfigwin39457845 div:has(> input[type=checkbox]) > label { grid-column: 1; grid-row: 1; }
+  #myconfigwin39457845 .genius-hint {
+    grid-column: 1 / -1;
+    color: var(--g-muted);
+    font-size: 11px;
+  }
+
+  /* Secções */
   #myconfigwin39457845 .genius-options-group,
   #myconfigwin39457845 .genius-options-advanced {
     display: block;
-    margin: 16px 0 0;
+    margin: 14px 0 0;
     padding: 0;
     border: 0;
     background: transparent;
@@ -2584,164 +2737,167 @@ function addCss () {
   #myconfigwin39457845 .genius-options-group h2,
   #myconfigwin39457845 .genius-options-advanced summary {
     margin: 0 0 6px;
-    color: #b3b3b3;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: .03em;
-  }
-  #myconfigwin39457845 .genius-options-advanced summary {
-    padding: 8px 2px;
-    cursor: pointer;
-  }
-  #myconfigwin39457845 .genius-options-group > div,
-  #myconfigwin39457845 .genius-options-advanced > div {
-    box-sizing: border-box;
-    margin: 6px 0;
-    padding: 9px 12px;
-    border: 1px solid #ffffff18;
-    border-radius: 8px;
-    background: #262626;
-  }
-  #myconfigwin39457845 .genius-options-group > div label,
-  #myconfigwin39457845 .genius-options-advanced > div label {
-    line-height: 1.4;
-  }
-  #myconfigwin39457845 .genius-options-advanced summary:focus-visible {
-    outline: 2px solid #1ed760;
-    outline-offset: 2px;
-  }
-  #myconfigwin39457845 > .genius-language-picker {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 12px 0;
-    padding: 10px 12px;
-  }
-  #myconfigwin39457845 .genius-language-picker select {
-    min-width: 150px;
-  }
-  #myconfigwin39457845 .genius-appearance-options summary {
-    cursor: pointer;
-    font-weight: 700;
-  }
-  #myconfigwin39457845 .genius-appearance-options > div {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin: 10px 0 0;
-  }
-  #myconfigwin39457845 .genius-appearance-options > div:not(.genius-appearance-preview) {
-    padding: 9px 12px;
-    border: 1px solid #ffffff18;
-    border-radius: 7px;
-    background: #303030;
-    color: #f5f5f5;
-  }
-  #myconfigwin39457845 .genius-appearance-options > div label {
-    color: #f5f5f5;
-  }
-  #myconfigwin39457845 .genius-synced-count {
-    display: block;
-    margin: 8px 0 0;
-    color: #b3b3b3;
-  }
-  #myconfigwin39457845 .genius-appearance-preview {
-    display: block;
-    box-sizing: border-box;
-    padding: 14px;
-    border: 1px solid #ffffff38;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  #myconfigwin39457845 .genius-appearance-preview small {
-    display: block;
-    margin-bottom: 12px;
-    font: 12px system-ui, sans-serif;
-  }
-  #myconfigwin39457845 .genius-appearance-preview p {
-    margin: 8px 0;
-    overflow-wrap: anywhere;
-  }
-  #myconfigwin39457845 .genius-appearance-preview p:last-child {
-    padding: 4px 8px;
-  }
-  #myconfigwin39457845 .genius-save-and-view {
-    width: 100%;
-    margin: 12px 0 0;
-    background: #1ed760;
-    border-color: #1ed760;
-    color: #121212;
-    font-weight: 700;
-  }
-  #myconfigwin39457845 .genius-save-and-view:hover,
-  #myconfigwin39457845 .genius-save-and-view:focus-visible {
-    background: #36e773;
-  }
-  #myconfigwin39457845 .genius-appearance-options select {
-    min-width: 120px;
-  }
-  #myconfigwin39457845 .genius-appearance-options input[type="color"] {
-    width: 42px;
-    height: 32px;
-    padding: 2px;
-    cursor: pointer;
-  }
-  #myconfigwin39457845 .genius-appearance-options button {
-    font-size: 12px;
-  }
-  #myconfigwin39457845 .genius-appearance-options button:disabled {
-    opacity: .5;
-    cursor: default;
-  }
-  #myconfigwin39457845 .genius-options-version {
-    display: block;
-    margin-top: 8px;
-    color: #b3b3b3;
+    padding: 0 4px;
+    color: var(--g-muted);
     font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
   }
+  #myconfigwin39457845 .genius-options-advanced summary { cursor: pointer; list-style: none; }
+  #myconfigwin39457845 .genius-options-advanced summary::after { content: ' ▸'; }
+  #myconfigwin39457845 .genius-options-advanced[open] summary::after { content: ' ▾'; }
+
+  /* Interruptores em vez de caixas de verificação */
   #myconfigwin39457845 input[type=checkbox] {
-    accent-color: #1ed760;
-  }
-  #myconfigwin39457845 label {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 34px;
+    height: 20px;
+    margin: 0;
+    border-radius: 999px;
+    background: #4d4d4d;
     cursor: pointer;
+    transition: background-color .18s;
   }
+  #myconfigwin39457845 input[type=checkbox]::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .18s;
+  }
+  #myconfigwin39457845 input[type=checkbox]:checked { background: var(--g-accent); }
+  #myconfigwin39457845 input[type=checkbox]:checked::before { transform: translateX(14px); }
+
+  /* Controlos */
+  #myconfigwin39457845 label { cursor: pointer; }
   #myconfigwin39457845 select,
   #myconfigwin39457845 input[type=number],
   #myconfigwin39457845 input[type=text] {
-    max-width: 100%;
-    padding: 5px 7px;
-    border: 1px solid #ffffff40;
-    border-radius: 5px;
-    background: #333;
-    color: #fff;
+    box-sizing: border-box;
+    max-width: 180px;
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--g-line);
+    border-radius: 8px;
+    background: var(--g-surface-2);
+    color: var(--g-text);
     font: inherit;
   }
+  #myconfigwin39457845 input[type=number] { width: 72px; }
   #myconfigwin39457845 button {
-    margin: 2px 6px 2px 0;
-    padding: 6px 10px;
-    border: 1px solid #ffffff40;
-    border-radius: 6px;
-    background: #383838;
-    color: #fff;
+    margin: 0;
+    padding: 6px 12px;
+    border: 1px solid var(--g-line);
+    border-radius: 999px;
+    background: var(--g-surface-2);
+    color: var(--g-text);
     font: inherit;
+    cursor: pointer;
   }
-  #myconfigwin39457845 button:hover,
-  #myconfigwin39457845 button:focus-visible {
-    background: #4b4b4b;
-    border-color: #fff8;
+  #myconfigwin39457845 button:hover { background: #383838; }
+  #myconfigwin39457845 :is(button, select, input, a, summary):focus-visible {
+    outline: 2px solid var(--g-accent);
+    outline-offset: 2px;
+  }
+
+  /* Aspeto (dentro da secção Letras) */
+  #myconfigwin39457845 .genius-appearance-row { display: block !important; }
+  #myconfigwin39457845 .genius-appearance-options summary { cursor: pointer; font-weight: 600; }
+  #myconfigwin39457845 .genius-appearance-options > div:not(.genius-appearance-preview) {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  #myconfigwin39457845 .genius-appearance-options input[type=color] {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--g-line);
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+  }
+  #myconfigwin39457845 .genius-appearance-options input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  #myconfigwin39457845 .genius-appearance-options input[type=color]::-webkit-color-swatch { border: 0; border-radius: 50%; }
+  #myconfigwin39457845 .genius-appearance-options button { padding: 3px 10px; font-size: 11px; }
+  #myconfigwin39457845 .genius-appearance-options button:disabled { opacity: .4; cursor: default; }
+  #myconfigwin39457845 .genius-synced-count { display: block; margin: 8px 0 0; color: var(--g-muted); font-size: 11px; }
+  #myconfigwin39457845 .genius-appearance-preview {
+    display: block;
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    border: 1px solid var(--g-line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  #myconfigwin39457845 .genius-appearance-preview small { display: block; margin-bottom: 6px; font: 11px system-ui, sans-serif; opacity: .7; }
+  #myconfigwin39457845 .genius-appearance-preview p { margin: 4px 0; overflow-wrap: anywhere; }
+  #myconfigwin39457845 .genius-appearance-preview p:last-child { padding: 2px 8px; border-radius: 6px; }
+  #myconfigwin39457845 .genius-save-and-view {
+    width: 100%;
+    margin: 10px 0 0 !important;
+    background: var(--g-accent) !important;
+    border-color: var(--g-accent) !important;
+    color: #121212 !important;
+    font-weight: 700;
+  }
+
+  /* Barra de ações fixa em baixo + rodapé discreto */
+  #myconfigwin39457845 > .genius-options-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 14px -16px 0;
+    padding: 10px 16px;
+    border: 0;
+    border-top: 1px solid var(--g-line);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--g-bg) 92%, transparent);
+    backdrop-filter: blur(8px);
   }
   #myconfigwin39457845_close_button {
-    background: #1ed760 !important;
-    border-color: #1ed760 !important;
+    order: 9;
+    margin-left: auto !important;
+    background: var(--g-accent) !important;
+    border-color: var(--g-accent) !important;
     color: #121212 !important;
     font-weight: 700 !important;
   }
-  #myconfigwin39457845 :is(button, select, input, a):focus-visible {
-    outline: 2px solid #1ed760;
-    outline-offset: 2px;
+  #myconfigwin39457845 > div:last-child:not(.genius-options-actions) {
+    margin: 8px 0 12px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--g-muted);
+    font-size: 11px;
   }
+  #myconfigwin39457845 > div:last-child p { margin: 0; }
+  #myconfigwin39457845 .genius-options-version { display: block; margin-top: 4px; font-size: 10px; opacity: .7; }
+  #myconfigwin39457845 .genius-options-footer,
+  #myconfigwin39457845 .genius-options-footer * { font-size: 11px !important; }
+  #myconfigwin39457845 .genius-options-footer {
+    margin: 12px 0 0;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--g-muted);
+  }
+  #myconfigwin39457845 .genius-options-footer a { color: var(--g-muted); }
   #lyricscontainer.genius-search-container {
     box-sizing: border-box;
     min-height: 100%;
@@ -3021,6 +3177,119 @@ function installSyncedLineStyle (iframeDocument) {
   iframeDocument.head.appendChild(style)
 }
 
+/* ---------- Botões "Retomar" / "A partir daqui" (criados pela biblioteca dentro do iframe) ---------- */
+
+const SCROLL_BUTTON_ICONS = {
+  arrow: `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14M6 13l6 6 6-6'/></svg>`,
+  target: `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'><circle cx='12' cy='12' r='3.2'/><path d='M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5'/></svg>`
+}
+
+function installScrollButtonsStyle (iframeDocument) {
+  if (!iframeDocument?.head || iframeDocument.getElementById('genius-scroll-buttons-style')) return
+  const icon = svg => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+  const style = iframeDocument.createElement('style')
+  style.id = 'genius-scroll-buttons-style'
+  // Especificidade (html body #id #id) acima da da biblioteca (#id #id), sem !important
+  style.textContent = `
+    html body #resumeAutoScrollButtonContainer {
+      top: auto;
+      right: auto;
+      left: 50%;
+      bottom: 18px;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid #ffffff1f;
+      border-radius: 999px;
+      background: rgba(18, 18, 18, .78);
+      -webkit-backdrop-filter: blur(12px) saturate(1.4);
+      backdrop-filter: blur(12px) saturate(1.4);
+      box-shadow: 0 10px 30px #0009;
+      opacity: 0;
+      transform: translate(-50%, 10px);
+      transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+    }
+    html body #resumeAutoScrollButtonContainer.btn-show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+      transition: opacity .18s ease, transform .18s ease, visibility 0s;
+    }
+    html body #resumeAutoScrollButtonContainer #resumeAutoScrollButton,
+    html body #resumeAutoScrollButtonContainer #resumeAutoScrollFromHereButton {
+      width: auto;
+      height: 32px;
+      gap: 6px;
+      padding: 0 14px 0 10px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      box-shadow: none;
+      color: #f5f5f5;
+      font: 600 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+      white-space: nowrap;
+      transition: background-color .15s, filter .15s, transform .1s;
+    }
+    html body #resumeAutoScrollButtonContainer #resumeAutoScrollButton {
+      background: var(--genius-accent, #1ed760);
+      color: #121212;
+    }
+    html body #resumeAutoScrollButtonContainer #resumeAutoScrollButton:hover { filter: brightness(1.1); }
+    html body #resumeAutoScrollButtonContainer #resumeAutoScrollFromHereButton:hover { background: #ffffff1c; }
+    html body #resumeAutoScrollButtonContainer button:active { transform: scale(.96); }
+    html body #resumeAutoScrollButtonContainer button:focus-visible {
+      outline: 2px solid var(--genius-accent, #1ed760);
+      outline-offset: 2px;
+    }
+    html body #resumeAutoScrollButtonContainer button > div { display: none; }
+    html body #resumeAutoScrollButtonContainer button::before {
+      content: '';
+      flex: none;
+      width: 16px;
+      height: 16px;
+      background: currentColor;
+      -webkit-mask: var(--genius-icon) center / contain no-repeat;
+      mask: var(--genius-icon) center / contain no-repeat;
+      transition: transform .2s;
+    }
+    html body #resumeAutoScrollButtonContainer button::after { content: attr(data-label); }
+    #resumeAutoScrollButton { --genius-icon: ${icon(SCROLL_BUTTON_ICONS.arrow)}; }
+    #resumeAutoScrollFromHereButton { --genius-icon: ${icon(SCROLL_BUTTON_ICONS.target)}; }
+    /* a biblioteca usa arrow-icon="down" quando a linha atual está ACIMA */
+    html body #resumeAutoScrollButtonContainer #resumeAutoScrollButton[arrow-icon="down"]::before { transform: rotate(180deg); }
+    @media (prefers-reduced-motion: reduce) {
+      html body #resumeAutoScrollButtonContainer,
+      html body #resumeAutoScrollButtonContainer button,
+      html body #resumeAutoScrollButtonContainer button::before { transition: none; }
+    }
+  `
+  iframeDocument.head.appendChild(style)
+}
+
+function labelScrollButtons (iframeDocument) {
+  if (!iframeDocument?.getElementById) return false
+  const { resume, fromHere } = getPictureInPictureLabels()
+  for (const [id, label] of [['resumeAutoScrollButton', resume], ['resumeAutoScrollFromHereButton', fromHere]]) {
+    const button = iframeDocument.getElementById(id)
+    if (!button || button.dataset.label === label) continue
+    button.dataset.label = label
+    button.title = label
+    button.setAttribute('aria-label', label)
+  }
+  return Boolean(iframeDocument.getElementById('resumeAutoScrollButton') && iframeDocument.getElementById('resumeAutoScrollFromHereButton'))
+}
+
+// A biblioteca cria os botões no primeiro scroll manual.
+function enhanceScrollButtons (iframeDocument) {
+  installScrollButtonsStyle(iframeDocument)
+  if (labelScrollButtons(iframeDocument)) return
+  const FrameMutationObserver = iframeDocument.defaultView?.MutationObserver
+  if (!FrameMutationObserver || !iframeDocument.body || iframeDocument.body.dataset.geniusScrollButtons) return
+  iframeDocument.body.dataset.geniusScrollButtons = '1'
+  const observer = new FrameMutationObserver(() => {
+    if (labelScrollButtons(iframeDocument)) observer.disconnect()
+  })
+  observer.observe(iframeDocument.body, { childList: true, subtree: true })
+}
+
 function onLyricsFrameReady (details) {
   styleCompactLyricsFrame(details)
   clearSyncedHighlight()
@@ -3036,6 +3305,7 @@ function onLyricsFrameReady (details) {
   syncedLines.matches = []
   installSyncedLineStyle(details.document)
   applyLyricsAppearance(details.document)
+  enhanceScrollButtons(details.document)
 }
 
 function styleIframeContent () {
