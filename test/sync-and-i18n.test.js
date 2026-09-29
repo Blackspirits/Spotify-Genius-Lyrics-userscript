@@ -82,6 +82,63 @@ test('accepts a remaster label without confusing live or unrelated recordings', 
   ], 'Song', 'Eagles', 200)`, vmContext), null)
 })
 
+test('aligns Hangul with romanization while rejecting positional guesses for kanji', () => {
+  const vmContext = context()
+  const result = vm.runInContext(`(() => {
+    const hangul = ['사랑해', '안녕하세요', '너를 봐', '기다려', '다시 만나', '언제나'].map(text => ({ text }))
+    const romanized = ['saranghae', 'annyeonghaseyo', 'neoreul bwa', 'gidaryeo', 'dasi manna', 'eonjena']
+      .map((text, index) => ({ text, time: index * 5 }))
+    const kanji = Array.from({ length: 8 }, (_, index) => ({ text: '君の声' + index }))
+    const unrelated = Array.from({ length: 8 }, (_, index) => ({ text: 'random words ' + index, time: index * 5 }))
+    return {
+      hangul: matchSyncedLines(hangul, romanized).map(({ index }) => index),
+      kanji: matchSyncedLines(kanji, unrelated).length
+    }
+  })()`, vmContext)
+  assert.deepEqual(Array.from(result.hangul), [0, 1, 2, 3, 4, 5])
+  assert.equal(result.kanji, 0)
+})
+
+test('matches kana with romaji and avoids guessing unreadable kanji lines', () => {
+  const vmContext = context()
+  const result = vm.runInContext(`(() => {
+    const kana = ['ありがとう', 'きみのこえ', 'こころ', 'さくらさく']
+      .map(text => ({ text }))
+    const kanaTimes = ['arigatou', 'kiminokoe', 'kokoro', 'sakurasaku']
+      .map((text, index) => ({ text, time: index * 5 }))
+    const lyrics = ['君の声', 'ありがとう', 'きみのこえ', 'また明日', 'こころ', 'さくらさく']
+      .map(text => ({ text }))
+    const timed = ['kiminokoe', 'arigatou', 'kiminokoe', 'mataashita', 'kokoro', 'sakurasaku']
+      .map((text, index) => ({ text, time: index * 5 }))
+    return {
+      kana: matchSyncedLines(kana, kanaTimes).map(({ index }) => index),
+      mixed: matchSyncedLines(lyrics, timed).map(({ index }) => index)
+    }
+  })()`, vmContext)
+  assert.deepEqual(Array.from(result.kana), [0, 1, 2, 3])
+  assert.deepEqual(Array.from(result.mixed), [])
+})
+
+test('uses an artist alias from the Genius header but never accepts an unrelated artist', () => {
+  const vmContext = context()
+  vmContext.frame = { querySelectorAll: () => [{ textContent: 'IU (아이유)' }] }
+  const result = vm.runInContext(`(() => {
+    const aliases = geniusArtistAliases('IU', frame)
+    const records = [
+      { trackName: 'Song', artistName: 'Another Artist', duration: 200, syncedLyrics: 'wrong' },
+      { trackName: 'Song', artistName: '아이유', duration: 200, syncedLyrics: 'correct' }
+    ]
+    return {
+      chosen: selectSyncedRecord(records, 'Song (feat. Latto)', 'IU', 200, aliases)?.syncedLyrics,
+      withoutAlias: selectSyncedRecord([records[1]], 'Song', 'IU', 200),
+      unrelated: selectSyncedRecord([records[0]], 'Song', 'IU', 200, aliases)
+    }
+  })()`, vmContext)
+  assert.equal(result.chosen, 'correct')
+  assert.equal(result.withoutAlias, null)
+  assert.equal(result.unrelated, null)
+})
+
 test('rejects unrelated lyrics and incorrect recordings despite similar metadata', () => {
   const vmContext = context()
   assert.equal(vm.runInContext(`matchSyncedLines(
@@ -202,10 +259,45 @@ test('applies safe appearance settings within the lyrics frame', () => {
   assert.match(style.textContent, /font-family: Georgia, serif/)
   assert.match(style.textContent, /color: #ffffff !important/)
   assert.match(style.textContent, /background-color: #151515 !important/)
-  assert.match(style.textContent, /rgba\(255, 204, 0, \.16\)/)
+  assert.match(style.textContent, /rgba\(255, 204, 0, \.2\)/)
+  assert.match(style.textContent, /--genius-accent: #ffcc00/)
   assert.equal(vm.runInContext("validColor('red; color: blue')", vmContext), '')
   vm.runInContext("appearance.textColor = ''; applyLyricsAppearance(frame)", vmContext)
   assert.doesNotMatch(style.textContent, /color: #ffffff/)
+})
+
+test('labels the scroll controls created later by the library and updates their language', () => {
+  const vmContext = context()
+  const elements = new Map()
+  let observer
+  let disconnected = false
+  const frame = {
+    head: { appendChild: element => elements.set(element.id, element) },
+    body: { dataset: {} },
+    createElement: () => ({ id: '', textContent: '' }),
+    getElementById: id => elements.get(id),
+    defaultView: {
+      MutationObserver: class {
+        constructor (callback) { observer = callback }
+        observe () {}
+        disconnect () { disconnected = true }
+      }
+    }
+  }
+  vmContext.frame = frame
+  vm.runInContext('enhanceScrollButtons(frame)', vmContext)
+  const style = elements.get('genius-scroll-buttons-style')
+  assert.match(style.textContent, /bottom: 18px/)
+  assert.match(style.textContent, /#resumeAutoScrollButton\[arrow-icon="down"\]::before/)
+  const button = () => ({ dataset: {}, setAttribute (key, value) { this[key] = value } })
+  elements.set('resumeAutoScrollButton', button())
+  elements.set('resumeAutoScrollFromHereButton', button())
+  observer()
+  assert.equal(disconnected, true)
+  assert.equal(elements.get('resumeAutoScrollButton').dataset.label, 'Resume')
+  vm.runInContext("uiLanguagePreference = 'pt-PT'; labelScrollButtons(frame)", vmContext)
+  assert.equal(elements.get('resumeAutoScrollButton').dataset.label, 'Retomar')
+  assert.equal(elements.get('resumeAutoScrollFromHereButton')['aria-label'], 'A partir daqui')
 })
 
 test('updates the lyric font size immediately while the options are open', () => {
@@ -482,6 +574,28 @@ test('interpolates playback without advancing while Media Session reports a paus
     fakeNow = 2250
   `, vmContext)
   assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 11.25)
+  vm.runInContext("navigator.mediaSession.playbackState = 'paused'", vmContext)
+  assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 11)
+})
+
+test('continues the hidden mini player clock only when Media Session confirms playback', () => {
+  const vmContext = context()
+  vmContext.fakeNow = 1000
+  vm.runInContext(`
+    Date = { now: () => fakeNow }
+    document.hidden = true
+    navigator.mediaSession = { playbackState: 'playing' }
+    lastPlaybackTime = 10
+    notePlaybackTime(10)
+    fakeNow = 2000
+    lastPlaybackTime = 11
+    notePlaybackTime(11)
+    syncedLines.trackDuration = 200
+    fakeNow = 6000
+  `, vmContext)
+  assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 15)
+  vm.runInContext("navigator.mediaSession.playbackState = 'none'", vmContext)
+  assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 11.75)
   vm.runInContext("navigator.mediaSession.playbackState = 'paused'", vmContext)
   assert.equal(vm.runInContext('estimatedPlaybackTime()', vmContext), 11)
 })
